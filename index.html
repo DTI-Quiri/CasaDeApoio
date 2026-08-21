@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/Brasao-Quirinopolis.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Casa de Apoio - Quirinópolis</title>
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('casaapoio.theme');
+          if (saved === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="h-full antialiased font-sans selection:bg-brand-500/20 selection:text-brand-600">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
