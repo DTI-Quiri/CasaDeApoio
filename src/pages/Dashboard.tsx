@@ -443,7 +443,7 @@ export default function DashboardPage() {
             </button>
 
             {newActionOpen && (
-              <div className="absolute right-0 z-20 mt-2 w-60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xl p-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute left-0 sm:left-auto sm:right-0 z-20 mt-2 w-60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xl p-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
                 <Link
                   className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-950/40 dark:hover:text-brand-300 rounded-xl transition-colors"
                   to="/cadastro"
@@ -832,7 +832,7 @@ export default function DashboardPage() {
           <table className="min-w-full text-sm text-left">
             <thead className="bg-slate-50/90 dark:bg-slate-900/90 border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 font-bold">
               <tr>
-                <th className="py-3.5 pl-5 pr-2 w-10 text-center">
+                <th className="py-3.5 pl-4 sm:pl-5 pr-1 sm:pr-2 w-8 sm:w-10 text-center">
                   <input
                     type="checkbox"
                     checked={isAllPresentSelected}
@@ -841,14 +841,14 @@ export default function DashboardPage() {
                     className="rounded border-slate-300 dark:border-slate-700 text-brand-600 focus:ring-brand-500 cursor-pointer h-4 w-4"
                   />
                 </th>
-                <th className="py-3.5 px-4">Hóspede</th>
-                <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4">Check-in</th>
-                <th className="py-3.5 px-4">Check-out</th>
-                <th className="py-3.5 px-4">Idade</th>
+                <th className="py-3.5 px-2 sm:px-4">Hóspede</th>
+                <th className="py-3.5 px-2 sm:px-4">Status</th>
+                <th className="py-3.5 px-4 hidden sm:table-cell">Check-in</th>
+                <th className="py-3.5 px-4 hidden md:table-cell">Check-out</th>
+                <th className="py-3.5 px-4 hidden md:table-cell">Idade</th>
                 <th className="py-3.5 px-4 hidden lg:table-cell">+18</th>
                 <th className="py-3.5 px-4 hidden lg:table-cell">Acomp.</th>
-                <th className="py-3.5 px-5 text-right">Ações</th>
+                <th className="py-3.5 px-3 sm:px-5 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 bg-white/40 dark:bg-slate-900/40">
@@ -912,7 +912,7 @@ export default function DashboardPage() {
                         isSelected ? 'bg-brand-50/60 dark:bg-brand-950/40' : ''
                       }`}
                     >
-                      <td className="py-3.5 pl-5 pr-2 text-center">
+                      <td className="py-3.5 pl-4 sm:pl-5 pr-1 sm:pr-2 text-center">
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -920,7 +920,7 @@ export default function DashboardPage() {
                           className="rounded border-slate-300 dark:border-slate-700 text-brand-600 focus:ring-brand-500 cursor-pointer h-4 w-4"
                         />
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-2 sm:px-4">
                       <div className="flex items-center gap-3">
                         <div className="h-9 w-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-brand-50 group-hover:text-brand-600 dark:group-hover:bg-brand-950/40 dark:group-hover:text-brand-400 transition-colors">
                           {g.name.charAt(0).toUpperCase()}
@@ -950,11 +950,11 @@ export default function DashboardPage() {
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4">
+                    <td className="py-3.5 px-2 sm:px-4">
                       <StatusBadge status={g.status} />
                     </td>
 
-                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600 dark:text-slate-300 hidden sm:table-cell">
                       {g.checkInAt
                         ? new Date(g.checkInAt).toLocaleString('pt-BR', {
                             dateStyle: 'short',
@@ -963,7 +963,7 @@ export default function DashboardPage() {
                         : '-'}
                     </td>
 
-                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <td className="py-3.5 px-4 text-xs font-medium text-slate-600 dark:text-slate-300 hidden md:table-cell">
                       {g.checkOutAt
                         ? new Date(g.checkOutAt).toLocaleString('pt-BR', {
                             dateStyle: 'short',
@@ -972,7 +972,7 @@ export default function DashboardPage() {
                         : '-'}
                     </td>
 
-                    <td className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <td className="py-3.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 hidden md:table-cell">
                       {calculateAge(g.dateOfBirth)} anos
                     </td>
 
@@ -992,8 +992,8 @@ export default function DashboardPage() {
                       )}
                     </td>
 
-                    <td className="py-3.5 px-5">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-3.5 px-2 sm:px-5">
+                      <div className="flex items-center justify-end gap-1 sm:gap-1.5 flex-wrap">
                         {g.status !== 'presente' ? (
                           <div className="inline-flex items-center gap-1">
                             <button
@@ -1052,8 +1052,8 @@ export default function DashboardPage() {
 
       {/* Floating Batch Actions Bar */}
       {selectedGuestIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-xl border border-slate-700/80 shadow-2xl rounded-2xl py-3 px-5 flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-200">
-          <div className="flex items-center gap-2 border-r border-slate-700 pr-4">
+        <div className="fixed bottom-4 sm:bottom-6 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-auto z-40 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-xl border border-slate-700/80 shadow-2xl rounded-2xl py-3 px-4 sm:px-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="flex items-center gap-2 sm:border-r border-slate-700 sm:pr-4">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-white text-xs font-bold shadow-xs">
               {selectedGuestIds.size}
             </span>
@@ -1064,20 +1064,21 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={() => setBatchCheckoutModalOpen(true)}
-              className="btn bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2 px-4 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+              className="btn bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs py-2 px-3 sm:px-4 rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer flex-1 sm:flex-none justify-center"
             >
               <Clock className="h-4 w-4" />
-              <span>Finalizar Selecionados (Check-out)</span>
+              <span className="hidden sm:inline">Finalizar Selecionados (Check-out)</span>
+              <span className="sm:hidden">Finalizar</span>
             </button>
 
             <button
               type="button"
               onClick={clearSelection}
-              className="text-xs font-medium text-slate-400 hover:text-white px-2 py-1 transition-colors cursor-pointer"
+              className="text-xs font-medium text-slate-400 hover:text-white px-2 py-1 transition-colors cursor-pointer whitespace-nowrap"
             >
               Desmarcar
             </button>

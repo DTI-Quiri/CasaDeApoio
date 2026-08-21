@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import CpfPreCheckModal from '../components/CpfPreCheckModal';
 import SmartAutocomplete from '../components/SmartAutocomplete';
+import DateInput from '../components/DateInput';
 import { MEDICAL_LOCATIONS, PROCEDURE_SUGGESTIONS } from '../data/medicalLocations';
 import {
   User,
@@ -197,7 +198,7 @@ export default function GuestFormPage() {
     if (!name.trim()) missing.push('Nome Completo');
     if (!cpf.trim()) missing.push('CPF');
     if (!susCard.trim()) missing.push('Nº do Cartão do SUS');
-    if (!phone.trim()) missing.push('Celular');
+    if (!phone.trim()) missing.push('Telefone');
     if (!dateOfBirth) missing.push('Data de Nascimento');
     if (isMinor && !responsible.trim()) missing.push('Responsável pelo Hóspede');
     if (!addressZip.trim()) missing.push('CEP');
@@ -354,7 +355,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingName)}`}
-                placeholder="Nome do hóspede"
                 value={name}
                 onChange={e => setName(e.target.value)}
               />
@@ -372,7 +372,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingCPF || invalidCPF)}`}
-                placeholder="000.000.000-00"
                 value={cpf}
                 onChange={e => setCPF(formatCPF(e.target.value))}
                 onBlur={onCPFBlur}
@@ -397,7 +396,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingSusCard)}`}
-                placeholder="000 0000 0000 0000"
                 value={susCard}
                 onChange={e => setSusCard(formatSUS(e.target.value))}
               />
@@ -410,19 +408,23 @@ export default function GuestFormPage() {
             </div>
 
             <div>
-              <label className="label">
-                Celular / WhatsApp <span className="text-rose-500">*</span>
+              <label className="label flex items-center justify-between">
+                <span>
+                  Telefone <span className="text-rose-500">*</span>
+                </span>
+                <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 normal-case">
+                  (DDD) 9+NUMERO
+                </span>
               </label>
               <input
                 className={`input ${errorInputClass(missingPhone)}`}
-                placeholder="(00) 00000-0000"
                 value={phone}
                 onChange={e => setPhone(formatPhone(e.target.value))}
               />
               {missingPhone && (
                 <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Celular / WhatsApp é obrigatório.
+                  Telefone é obrigatório.
                 </span>
               )}
             </div>
@@ -431,11 +433,10 @@ export default function GuestFormPage() {
               <label className="label">
                 Data de Nascimento <span className="text-rose-500">*</span>
               </label>
-              <input
-                className={`input ${errorInputClass(missingDOB)}`}
-                type="date"
+              <DateInput
                 value={dateOfBirth}
-                onChange={e => setDOB(e.target.value)}
+                onChange={setDOB}
+                hasError={missingDOB}
               />
               {missingDOB && (
                 <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
@@ -457,7 +458,6 @@ export default function GuestFormPage() {
                 </label>
                 <input
                   className={`input ${errorInputClass(missingResponsible)}`}
-                  placeholder="Nome do responsável legal"
                   value={responsible}
                   onChange={e => setResponsible(e.target.value)}
                 />
@@ -539,7 +539,6 @@ export default function GuestFormPage() {
                         <input
                           type="text"
                           className="input"
-                          placeholder={`Nome do ${idx + 1}º acompanhante`}
                           value={comp.name}
                           onChange={e => updateCompanion(idx, 'name', e.target.value)}
                         />
@@ -553,7 +552,6 @@ export default function GuestFormPage() {
                         <input
                           type="text"
                           className="input"
-                          placeholder="000.000.000-00"
                           value={comp.cpf || ''}
                           maxLength={14}
                           onChange={e =>
@@ -605,7 +603,6 @@ export default function GuestFormPage() {
                 value={reason}
                 onChange={setReason}
                 options={PROCEDURE_SUGGESTIONS}
-                placeholder="Ex.: Consulta com especialista, Quimioterapia, Exame de Tomografia..."
               />
             </div>
 
@@ -619,7 +616,6 @@ export default function GuestFormPage() {
                 value={medicalNotes}
                 onChange={setMedicalNotes}
                 options={hospitalOptions}
-                placeholder="Ex.: Hospital Araújo Jorge, HGG, HC-UFG, HMAP, CRER, Santa Casa..."
                 emptyText="Hospital/Clínica não listado. Pressione Enter para usar o nome digitado."
               />
             </div>
@@ -663,7 +659,6 @@ export default function GuestFormPage() {
               <div className="flex gap-2">
                 <input
                   className={`input ${errorInputClass(missingZip)}`}
-                  placeholder="00000-000"
                   value={addressZip}
                   onChange={e => setAddressZip(formatCEP(e.target.value))}
                   onBlur={lookupCEP}
@@ -693,7 +688,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingState)}`}
-                placeholder="GO"
                 value={addressState}
                 onChange={e => setAddressState(e.target.value)}
               />
@@ -711,7 +705,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingCity)}`}
-                placeholder="Quirinópolis"
                 value={addressCity}
                 onChange={e => setAddressCity(e.target.value)}
               />
@@ -729,7 +722,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingNeighborhood)}`}
-                placeholder="Bairro"
                 value={addressNeighborhood}
                 onChange={e => setAddressNeighborhood(e.target.value)}
               />
@@ -747,7 +739,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingStreet)}`}
-                placeholder="Rua, Avenida..."
                 value={addressStreet}
                 onChange={e => setAddressStreet(e.target.value)}
               />
@@ -765,7 +756,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className={`input ${errorInputClass(missingNumber)}`}
-                placeholder="Nº"
                 value={addressNumber}
                 onChange={e => setAddressNumber(e.target.value)}
               />
@@ -784,7 +774,6 @@ export default function GuestFormPage() {
               </label>
               <input
                 className="input"
-                placeholder="Apto, Bloco, Casa..."
                 value={addressComplement}
                 onChange={e => setAddressComplement(e.target.value)}
               />

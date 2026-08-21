@@ -118,7 +118,6 @@ export default function CpfPreCheckModal({
             <label className="label">CPF do Hóspede</label>
             <input
               className="input text-base"
-              placeholder="000.000.000-00"
               value={cpf}
               onChange={e => handleCpfChange(e.target.value)}
               onKeyDown={e => {

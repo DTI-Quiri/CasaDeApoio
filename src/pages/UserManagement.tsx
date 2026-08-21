@@ -166,7 +166,6 @@ export default function UserManagementPage() {
               className={`input ${submitted && !username.trim() ? 'border-rose-400 dark:border-rose-500 bg-rose-50/30 dark:bg-rose-950/20 ring-4 ring-rose-500/10' : ''}`}
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder="ex.: joao.silva"
             />
             {submitted && !username.trim() && (
               <span className="text-xs font-medium text-rose-500 mt-1 inline-block">

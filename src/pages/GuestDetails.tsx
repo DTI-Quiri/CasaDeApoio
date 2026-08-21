@@ -16,6 +16,7 @@ import { parseCompanions, formatCompanionsList } from '../utils/companion';
 import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { toast } from 'sonner';
+import DateInput from '../components/DateInput';
 import {
   ArrowLeft,
   User,
@@ -433,10 +434,10 @@ export default function GuestDetailsPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
           <Link
             to={`/hospedes/${g.id}/historico`}
-            className="btn-secondary text-xs sm:text-sm font-medium"
+            className="btn-secondary text-xs sm:text-sm font-medium justify-center"
           >
             <History className="h-4 w-4 text-slate-500" />
             <span>Ver Linha do Tempo</span>
@@ -444,16 +445,16 @@ export default function GuestDetailsPage() {
           <button
             type="button"
             onClick={() => setDeleteModalOpen(true)}
-            className="btn-secondary text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs sm:text-sm font-semibold"
+            className="btn-secondary text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs sm:text-sm font-semibold justify-center"
             title="Excluir este hóspede"
           >
             <Trash2 className="h-4 w-4" />
-            <span>Excluir Hóspede</span>
+            <span>Excluir</span>
           </button>
           <button
             onClick={handleSaveAll}
             disabled={saving}
-            className={`text-xs sm:text-sm font-semibold shadow-sm transition-all ${
+            className={`text-xs sm:text-sm font-semibold shadow-sm transition-all justify-center ${
               hasUnsavedChanges
                 ? 'btn-primary ring-4 ring-brand-500/20 animate-pulse'
                 : 'btn-primary'
@@ -464,26 +465,26 @@ export default function GuestDetailsPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            <span>{hasUnsavedChanges ? 'Salvar Alterações *' : 'Salvar Alterações'}</span>
+            <span>{hasUnsavedChanges ? 'Salvar *' : 'Salvar'}</span>
           </button>
         </div>
       </div>
 
       {/* Profile Overview Card */}
       <div className="card p-6 sm:p-7 relative overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-400 text-white flex items-center justify-center text-2xl font-extrabold shadow-md ring-4 ring-brand-500/10 shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-400 text-white flex items-center justify-center text-xl sm:text-2xl font-extrabold shadow-md ring-4 ring-brand-500/10 shrink-0">
               {g.name.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
                   {g.name}
                 </h2>
                 <StatusBadge status={g.status} />
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 mt-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] sm:text-xs text-slate-500 mt-1">
                 <span>CPF: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{g.cpf}</strong></span>
                 <span>•</span>
                 <span className="flex items-center gap-1">
@@ -505,8 +506,9 @@ export default function GuestDetailsPage() {
                   onClick={handleUndoCheckout}
                   title="Desfazer check-out e reabrir a estadia que foi finalizada por engano"
                 >
-                  <RotateCcw className="h-4 w-4" />
-                  Reabrir Estadia (Desfazer Saída)
+                <RotateCcw className="h-4 w-4" />
+                  <span className="hidden sm:inline">Reabrir Estadia (Desfazer Saída)</span>
+                  <span className="sm:hidden">Reabrir</span>
                 </button>
                 <button
                   type="button"
@@ -515,7 +517,8 @@ export default function GuestDetailsPage() {
                   title="Iniciar um novo atendimento com data e hora de hoje"
                 >
                   <PlusCircle className="h-4 w-4" />
-                  Iniciar Nova Estadia
+                  <span className="hidden sm:inline">Iniciar Nova Estadia</span>
+                  <span className="sm:hidden">Nova Estadia</span>
                 </button>
               </>
             ) : (
@@ -593,7 +596,6 @@ export default function GuestDetailsPage() {
                 <label className="label">Nº Cartão do SUS</label>
                 <input
                   className="input"
-                  placeholder="000 0000 0000 0000"
                   value={g.susCard || ''}
                   onChange={e => updateLocalField('susCard', formatSUS(e.target.value))}
                 />
@@ -602,7 +604,12 @@ export default function GuestDetailsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label">Celular</label>
+                <label className="label flex items-center justify-between">
+                  <span>Telefone</span>
+                  <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 normal-case">
+                    (DDD) 9+NUMERO
+                  </span>
+                </label>
                 <input
                   className="input"
                   value={g.phone}
@@ -611,11 +618,9 @@ export default function GuestDetailsPage() {
               </div>
               <div>
                 <label className="label">Data de Nascimento</label>
-                <input
-                  className="input"
-                  type="date"
+                <DateInput
                   value={g.dateOfBirth}
-                  onChange={e => updateLocalField('dateOfBirth', e.target.value)}
+                  onChange={val => updateLocalField('dateOfBirth', val)}
                 />
               </div>
             </div>
@@ -649,7 +654,6 @@ export default function GuestDetailsPage() {
                 value={g.reason || ''}
                 onChange={val => updateLocalField('reason', val)}
                 options={PROCEDURE_SUGGESTIONS}
-                placeholder="Ex.: Consulta com especialista, Quimioterapia..."
               />
             </div>
 
@@ -659,7 +663,6 @@ export default function GuestDetailsPage() {
                 value={g.medicalNotes || ''}
                 onChange={val => updateLocalField('medicalNotes', val)}
                 options={hospitalOptions}
-                placeholder="Ex.: Hospital Araújo Jorge, HGG, HC-UFG, HMAP, CRER..."
                 emptyText="Hospital/Clínica não listado. Pressione Enter para usar o nome digitado."
               />
             </div>
@@ -750,7 +753,6 @@ export default function GuestDetailsPage() {
                           className="input py-2 text-sm"
                           value={comp.name || ''}
                           onChange={e => handleUpdateCompanion(idx, 'name', e.target.value)}
-                          placeholder={`Nome completo do ${idx + 1}º acompanhante`}
                         />
                       </div>
 
@@ -764,7 +766,6 @@ export default function GuestDetailsPage() {
                           value={comp.cpf || ''}
                           maxLength={14}
                           onChange={e => handleUpdateCompanion(idx, 'cpf', formatCPF(e.target.value))}
-                          placeholder="000.000.000-00"
                         />
                       </div>
                     </div>
@@ -803,7 +804,6 @@ export default function GuestDetailsPage() {
                 className="input"
                 value={g.addressZip || ''}
                 onChange={e => updateLocalField('addressZip', e.target.value)}
-                placeholder="00000-000"
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -813,7 +813,6 @@ export default function GuestDetailsPage() {
                   className="input"
                   value={g.addressCity || ''}
                   onChange={e => updateLocalField('addressCity', e.target.value)}
-                  placeholder="Cidade"
                 />
               </div>
               <div>
@@ -822,7 +821,6 @@ export default function GuestDetailsPage() {
                   className="input"
                   value={g.addressState || ''}
                   onChange={e => updateLocalField('addressState', e.target.value)}
-                  placeholder="GO"
                 />
               </div>
             </div>
@@ -833,7 +831,6 @@ export default function GuestDetailsPage() {
                   className="input"
                   value={g.addressStreet || ''}
                   onChange={e => updateLocalField('addressStreet', e.target.value)}
-                  placeholder="Rua, Avenida..."
                 />
               </div>
               <div className="sm:col-span-4">
@@ -842,7 +839,6 @@ export default function GuestDetailsPage() {
                   className="input"
                   value={g.addressNumber || ''}
                   onChange={e => updateLocalField('addressNumber', e.target.value)}
-                  placeholder="Nº"
                 />
               </div>
             </div>
@@ -852,7 +848,6 @@ export default function GuestDetailsPage() {
                 className="input"
                 value={g.addressNeighborhood || ''}
                 onChange={e => updateLocalField('addressNeighborhood', e.target.value)}
-                placeholder="Bairro"
               />
             </div>
             <div>
@@ -861,7 +856,6 @@ export default function GuestDetailsPage() {
                 className="input"
                 value={g.addressComplement || ''}
                 onChange={e => updateLocalField('addressComplement', e.target.value)}
-                placeholder="Apto, Bloco..."
               />
             </div>
           </div>

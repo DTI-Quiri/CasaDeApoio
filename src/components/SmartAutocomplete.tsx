@@ -31,7 +31,7 @@ export default function SmartAutocomplete({
   onChange,
   onBlur,
   options,
-  placeholder = 'Digite para buscar ou preencher...',
+  placeholder = '',
   className = '',
   inputClassName = '',
   icon,
