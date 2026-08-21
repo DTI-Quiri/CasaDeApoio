@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import type { Guest, Status, Companion } from '../types';
 import { upsertGuest, findGuestByCPF, addAudit } from '../services/guests';
 import { useNavigate, Link } from 'react-router-dom';
@@ -25,6 +25,50 @@ import {
   Trash2,
 } from 'lucide-react';
 
+const DRAFT_KEY = 'casaapoio_guest_form_draft';
+
+interface FormDraft {
+  name: string;
+  dateOfBirth: string;
+  phone: string;
+  cpf: string;
+  susCard: string;
+  hasCompanion: boolean;
+  companions: Companion[];
+  reason: string;
+  responsible: string;
+  medicalNotes: string;
+  medicalType: 'consulta' | 'exame' | 'cirurgia' | 'outro';
+  medicalStatus: 'aguardando' | 'concluida';
+  addressZip: string;
+  addressState: string;
+  addressCity: string;
+  addressNeighborhood: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressComplement: string;
+  existing: Guest | null;
+  modalOpen: boolean;
+}
+
+function loadDraft(): FormDraft | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Erro ao ler rascunho:', e);
+  }
+  return null;
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch (e) {}
+}
+
 const hospitalOptions = MEDICAL_LOCATIONS.map(loc => ({
   label: loc.name,
   badge: `${loc.city} • ${loc.type}`,
@@ -35,33 +79,145 @@ export default function GuestFormPage() {
   const nav = useNavigate();
   const { user } = useAuth();
 
-  const [modalOpen, setModalOpen] = useState(true);
-  const [name, setName] = useState('');
-  const [dateOfBirth, setDOB] = useState('');
-  const [phone, setPhone] = useState('');
-  const [cpf, setCPF] = useState('');
-  const [susCard, setSusCard] = useState('');
-  const [hasCompanion, setHasCompanion] = useState(false);
-  const [companions, setCompanions] = useState<Companion[]>([{ name: '', cpf: '' }]);
-  const [reason, setReason] = useState('');
-  const [responsible, setResponsible] = useState('');
-  const [medicalNotes, setMedicalNotes] = useState('');
-  const [medicalType, setMedicalType] = useState<'consulta' | 'exame' | 'cirurgia' | 'outro'>('consulta');
-  const [medicalStatus, setMedicalStatus] = useState<'aguardando' | 'concluida'>('aguardando');
-  const [addressZip, setAddressZip] = useState('');
-  const [addressState, setAddressState] = useState('');
-  const [addressCity, setAddressCity] = useState('');
-  const [addressNeighborhood, setAddressNeighborhood] = useState('');
-  const [addressStreet, setAddressStreet] = useState('');
-  const [addressNumber, setAddressNumber] = useState('');
-  const [addressComplement, setAddressComplement] = useState('');
+  const initialDraft = useRef(loadDraft()).current;
+
+  const [modalOpen, setModalOpen] = useState(() =>
+    initialDraft ? initialDraft.modalOpen : true
+  );
+  const [name, setName] = useState(() => initialDraft?.name || '');
+  const [dateOfBirth, setDOB] = useState(() => initialDraft?.dateOfBirth || '');
+  const [phone, setPhone] = useState(() => initialDraft?.phone || '');
+  const [cpf, setCPF] = useState(() => initialDraft?.cpf || '');
+  const [susCard, setSusCard] = useState(() => initialDraft?.susCard || '');
+  const [hasCompanion, setHasCompanion] = useState(() => initialDraft?.hasCompanion || false);
+  const [companions, setCompanions] = useState<Companion[]>(
+    () => initialDraft?.companions || [{ name: '', cpf: '' }]
+  );
+  const [reason, setReason] = useState(() => initialDraft?.reason || '');
+  const [responsible, setResponsible] = useState(() => initialDraft?.responsible || '');
+  const [medicalNotes, setMedicalNotes] = useState(() => initialDraft?.medicalNotes || '');
+  const [medicalType, setMedicalType] = useState<'consulta' | 'exame' | 'cirurgia' | 'outro'>(
+    () => initialDraft?.medicalType || 'consulta'
+  );
+  const [medicalStatus, setMedicalStatus] = useState<'aguardando' | 'concluida'>(
+    () => initialDraft?.medicalStatus || 'aguardando'
+  );
+  const [addressZip, setAddressZip] = useState(() => initialDraft?.addressZip || '');
+  const [addressState, setAddressState] = useState(() => initialDraft?.addressState || '');
+  const [addressCity, setAddressCity] = useState(() => initialDraft?.addressCity || '');
+  const [addressNeighborhood, setAddressNeighborhood] = useState(
+    () => initialDraft?.addressNeighborhood || ''
+  );
+  const [addressStreet, setAddressStreet] = useState(() => initialDraft?.addressStreet || '');
+  const [addressNumber, setAddressNumber] = useState(() => initialDraft?.addressNumber || '');
+  const [addressComplement, setAddressComplement] = useState(
+    () => initialDraft?.addressComplement || ''
+  );
   const [viaCepLoading, setViaCepLoading] = useState(false);
   const [cepInfo, setCepInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [existing, setExisting] = useState<Guest | null>(null);
+  const [existing, setExisting] = useState<Guest | null>(() => initialDraft?.existing || null);
   const [info, setInfo] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Auto-save form draft on changes
+  useEffect(() => {
+    const isDirty = Boolean(
+      name ||
+      cpf ||
+      susCard ||
+      phone ||
+      dateOfBirth ||
+      responsible ||
+      reason ||
+      medicalNotes ||
+      addressZip ||
+      addressStreet ||
+      addressCity ||
+      addressNeighborhood ||
+      addressNumber ||
+      addressComplement ||
+      (hasCompanion && companions.some(c => c.name || c.cpf)) ||
+      !modalOpen
+    );
+
+    if (isDirty) {
+      const draft: FormDraft = {
+        name,
+        dateOfBirth,
+        phone,
+        cpf,
+        susCard,
+        hasCompanion,
+        companions,
+        reason,
+        responsible,
+        medicalNotes,
+        medicalType,
+        medicalStatus,
+        addressZip,
+        addressState,
+        addressCity,
+        addressNeighborhood,
+        addressStreet,
+        addressNumber,
+        addressComplement,
+        existing,
+        modalOpen,
+      };
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch {}
+    }
+  }, [
+    name,
+    dateOfBirth,
+    phone,
+    cpf,
+    susCard,
+    hasCompanion,
+    companions,
+    reason,
+    responsible,
+    medicalNotes,
+    medicalType,
+    medicalStatus,
+    addressZip,
+    addressState,
+    addressCity,
+    addressNeighborhood,
+    addressStreet,
+    addressNumber,
+    addressComplement,
+    existing,
+    modalOpen,
+  ]);
+
+  // Prevent accidental tab close or page refresh warning when data is typed
+  useEffect(() => {
+    const isDirty = Boolean(
+      name ||
+      cpf ||
+      susCard ||
+      phone ||
+      dateOfBirth ||
+      responsible ||
+      addressStreet
+    );
+
+    if (!isDirty) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [name, cpf, susCard, phone, dateOfBirth, responsible, addressStreet]);
 
   const age = dateOfBirth ? calculateAge(dateOfBirth) : null;
   const isMinor = age !== null && age < 18;
@@ -271,6 +427,7 @@ export default function GuestFormPage() {
         });
       }
 
+      clearDraft();
       toast.success(existing ? 'Nova estadia registrada com sucesso!' : 'Hóspede cadastrado com sucesso!');
       nav('/dashboard');
     } catch {
@@ -295,6 +452,7 @@ export default function GuestFormPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/dashboard"
+            onClick={() => clearDraft()}
             className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
             title="Voltar ao Painel"
           >
@@ -783,7 +941,11 @@ export default function GuestFormPage() {
 
         {/* Action Form Footer */}
         <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4">
-          <Link to="/dashboard" className="btn-secondary w-full sm:w-auto text-center">
+          <Link
+            to="/dashboard"
+            onClick={() => clearDraft()}
+            className="btn-secondary w-full sm:w-auto text-center"
+          >
             Cancelar
           </Link>
           <button
