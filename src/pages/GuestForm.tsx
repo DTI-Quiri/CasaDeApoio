@@ -194,30 +194,6 @@ export default function GuestFormPage() {
     modalOpen,
   ]);
 
-  // Prevent accidental tab close or page refresh warning when data is typed
-  useEffect(() => {
-    const isDirty = Boolean(
-      name ||
-      cpf ||
-      susCard ||
-      phone ||
-      dateOfBirth ||
-      responsible ||
-      addressStreet
-    );
-
-    if (!isDirty) return;
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [name, cpf, susCard, phone, dateOfBirth, responsible, addressStreet]);
 
   const age = dateOfBirth ? calculateAge(dateOfBirth) : null;
   const isMinor = age !== null && age < 18;
