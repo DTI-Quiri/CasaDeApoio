@@ -147,3 +147,25 @@ html, body {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* ── Hide Netlify Badge and Drawer ── */
+netlify-drawer,
+#netlify-drawer,
+.netlify-badge,
+[data-netlify-badge],
+[data-netlify-drawer],
+[class*="netlify-badge"],
+[id*="netlify-badge"],
+iframe[title*="Netlify" i],
+iframe[src*="netlify" i],
+a[href*="netlify.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 0 !important;
+  height: 0 !important;
+}

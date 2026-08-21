@@ -23,6 +23,28 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <style>
+      netlify-drawer,
+      #netlify-drawer,
+      .netlify-badge,
+      [data-netlify-badge],
+      [data-netlify-drawer],
+      [class*="netlify-badge"],
+      [id*="netlify-badge"],
+      iframe[title*="Netlify" i],
+      iframe[src*="netlify" i],
+      a[href*="netlify.com"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        position: absolute !important;
+        left: -9999px !important;
+        top: -9999px !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+    </style>
   </head>
   <body class="h-full antialiased font-sans selection:bg-brand-500/20 selection:text-brand-600">
     <div id="root"></div>
