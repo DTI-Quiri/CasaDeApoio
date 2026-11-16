@@ -183,7 +183,6 @@ export default function GuestDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
 
   const [g, setG] = useState<Guest | undefined>(undefined);
   const [orig, setOrig] = useState<Guest | undefined>(undefined);
@@ -275,7 +274,7 @@ export default function GuestDetailsPage() {
   }
 
   async function handleDeleteGuest() {
-    if (!g || !isAdmin) return;
+    if (!g) return;
     try {
       setDeleteLoading(true);
       await deleteGuestSvc(g.id);
@@ -693,17 +692,15 @@ export default function GuestDetailsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setDeleteModalOpen(true)}
-              className="btn-secondary text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 justify-center cursor-pointer"
-              title="Excluir este hóspede"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>Excluir</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setDeleteModalOpen(true)}
+            className="btn-secondary text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 justify-center cursor-pointer"
+            title="Excluir este hóspede"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Excluir</span>
+          </button>
 
           {editing ? (
             <>
@@ -1601,19 +1598,17 @@ export default function GuestDetailsPage() {
         onCancel={() => setCheckoutModalOpen(false)}
       />
 
-      {/* Confirmation Modal for Guest Deletion (Admin only) */}
-      {isAdmin && (
-        <ConfirmModal
-          open={deleteModalOpen}
-          title="Excluir Hóspede"
-          message={`Tem certeza que deseja excluir o cadastro de "${g.name}"? Esta ação não pode ser desfeita e removerá todos os registros associados.`}
-          confirmLabel="Sim, Excluir Hóspede"
-          cancelLabel="Cancelar"
-          loading={deleteLoading}
-          onConfirm={handleDeleteGuest}
-          onCancel={() => setDeleteModalOpen(false)}
-        />
-      )}
+      {/* Confirmation Modal for Guest Deletion */}
+      <ConfirmModal
+        open={deleteModalOpen}
+        title="Excluir Hóspede"
+        message={`Tem certeza que deseja excluir o cadastro de "${g.name}"? Esta ação não pode ser desfeita e removerá todos os registros associados.`}
+        confirmLabel="Sim, Excluir Hóspede"
+        cancelLabel="Cancelar"
+        loading={deleteLoading}
+        onConfirm={handleDeleteGuest}
+        onCancel={() => setDeleteModalOpen(false)}
+      />
 
       {/* Floating Save Actions Bar when editing with unsaved changes */}
       {editing && hasUnsavedChanges && (
