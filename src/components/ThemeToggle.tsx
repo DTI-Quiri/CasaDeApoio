@@ -34,12 +34,16 @@ export default function ThemeToggle() {
       root.classList.add('dark');
       try {
         localStorage.setItem('casaapoio.theme', 'dark');
-      } catch {}
+      } catch {
+        // ignore storage errors
+      }
     } else {
       root.classList.remove('dark');
       try {
         localStorage.setItem('casaapoio.theme', 'light');
-      } catch {}
+      } catch {
+        // ignore storage errors
+      }
     }
     window.dispatchEvent(new Event('theme-changed'));
   };

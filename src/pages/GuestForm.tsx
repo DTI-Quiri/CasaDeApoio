@@ -2,8 +2,20 @@ import { useState, useEffect, useRef, type FormEvent } from 'react';
 import type { Guest, Status, Companion } from '../types';
 import { upsertGuest, findGuestByCPF, addAudit } from '../services/guests';
 import { useNavigate, Link } from 'react-router-dom';
-import { validateCPF, formatCPF, formatSUS, onlyDigits, calculateAge } from '../utils/cpf';
-import { parseCompanions } from '../utils/companion';
+import {
+  validateCPF,
+  formatCPF,
+  formatPhone,
+  formatCEP,
+  formatSUS,
+  onlyDigits,
+  calculateAge,
+  formatTimeBR,
+  isValidTimeBR,
+  formatAppointmentDisplay,
+  getTodayISO,
+} from '../utils/cpf';
+import { parseCompanions, COMPANION_RELATIONSHIPS } from '../utils/companion';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import CpfPreCheckModal from '../components/CpfPreCheckModal';
@@ -11,18 +23,15 @@ import SmartAutocomplete from '../components/SmartAutocomplete';
 import DateInput from '../components/DateInput';
 import { MEDICAL_LOCATIONS, PROCEDURE_SUGGESTIONS } from '../data/medicalLocations';
 import {
-  User,
-  Users,
-  Stethoscope,
-  MapPin,
-  ArrowLeft,
   Check,
+  CheckCircle2,
   Loader2,
   AlertCircle,
   Search,
-  Sparkles,
   Plus,
   Trash2,
+  Clock,
+  X,
 } from 'lucide-react';
 
 const DRAFT_KEY = 'casaapoio_guest_form_draft';
@@ -37,6 +46,8 @@ interface FormDraft {
   companions: Companion[];
   reason: string;
   responsible: string;
+  appointmentDate: string;
+  appointmentTime: string;
   medicalNotes: string;
   medicalType: 'consulta' | 'exame' | 'cirurgia' | 'outro';
   medicalStatus: 'aguardando' | 'concluida';
@@ -47,6 +58,8 @@ interface FormDraft {
   addressStreet: string;
   addressNumber: string;
   addressComplement: string;
+  notes?: string;
+  socialNotes?: string;
   existing: Guest | null;
   modalOpen: boolean;
 }
@@ -66,7 +79,9 @@ function loadDraft(): FormDraft | null {
 function clearDraft() {
   try {
     sessionStorage.removeItem(DRAFT_KEY);
-  } catch (e) {}
+  } catch {
+    // ignore storage errors
+  }
 }
 
 const hospitalOptions = MEDICAL_LOCATIONS.map(loc => ({
@@ -91,10 +106,12 @@ export default function GuestFormPage() {
   const [susCard, setSusCard] = useState(() => initialDraft?.susCard || '');
   const [hasCompanion, setHasCompanion] = useState(() => initialDraft?.hasCompanion || false);
   const [companions, setCompanions] = useState<Companion[]>(
-    () => initialDraft?.companions || [{ name: '', cpf: '' }]
+    () => initialDraft?.companions || [{ name: '', phone: '', relationship: '' }]
   );
   const [reason, setReason] = useState(() => initialDraft?.reason || '');
   const [responsible, setResponsible] = useState(() => initialDraft?.responsible || '');
+  const [appointmentDate, setAppointmentDate] = useState(() => initialDraft?.appointmentDate || '');
+  const [appointmentTime, setAppointmentTime] = useState(() => initialDraft?.appointmentTime || '');
   const [medicalNotes, setMedicalNotes] = useState(() => initialDraft?.medicalNotes || '');
   const [medicalType, setMedicalType] = useState<'consulta' | 'exame' | 'cirurgia' | 'outro'>(
     () => initialDraft?.medicalType || 'consulta'
@@ -102,9 +119,9 @@ export default function GuestFormPage() {
   const [medicalStatus, setMedicalStatus] = useState<'aguardando' | 'concluida'>(
     () => initialDraft?.medicalStatus || 'aguardando'
   );
-  const [addressZip, setAddressZip] = useState(() => initialDraft?.addressZip || '');
-  const [addressState, setAddressState] = useState(() => initialDraft?.addressState || '');
-  const [addressCity, setAddressCity] = useState(() => initialDraft?.addressCity || '');
+  const [addressZip, setAddressZip] = useState(() => initialDraft?.addressZip ?? '75860-000');
+  const [addressState, setAddressState] = useState(() => initialDraft?.addressState ?? 'GO');
+  const [addressCity, setAddressCity] = useState(() => initialDraft?.addressCity ?? 'Quirinópolis');
   const [addressNeighborhood, setAddressNeighborhood] = useState(
     () => initialDraft?.addressNeighborhood || ''
   );
@@ -113,12 +130,15 @@ export default function GuestFormPage() {
   const [addressComplement, setAddressComplement] = useState(
     () => initialDraft?.addressComplement || ''
   );
+  const [notes, setNotes] = useState(() => initialDraft?.notes || '');
+  const [socialNotes, setSocialNotes] = useState(() => initialDraft?.socialNotes || '');
   const [viaCepLoading, setViaCepLoading] = useState(false);
   const [cepInfo, setCepInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState<Guest | null>(() => initialDraft?.existing || null);
   const [info, setInfo] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [cpfTouched, setCpfTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Auto-save form draft on changes
@@ -131,14 +151,16 @@ export default function GuestFormPage() {
       dateOfBirth ||
       responsible ||
       reason ||
+      appointmentDate ||
+      appointmentTime ||
       medicalNotes ||
-      addressZip ||
       addressStreet ||
-      addressCity ||
       addressNeighborhood ||
       addressNumber ||
       addressComplement ||
-      (hasCompanion && companions.some(c => c.name || c.cpf)) ||
+      notes ||
+      socialNotes ||
+      (hasCompanion && companions.some(c => c.name || c.phone || c.relationship)) ||
       !modalOpen
     );
 
@@ -153,6 +175,8 @@ export default function GuestFormPage() {
         companions,
         reason,
         responsible,
+        appointmentDate,
+        appointmentTime,
         medicalNotes,
         medicalType,
         medicalStatus,
@@ -163,12 +187,16 @@ export default function GuestFormPage() {
         addressStreet,
         addressNumber,
         addressComplement,
+        notes,
+        socialNotes,
         existing,
         modalOpen,
       };
       try {
         sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-      } catch {}
+      } catch {
+        // ignore storage errors
+      }
     }
   }, [
     name,
@@ -180,6 +208,8 @@ export default function GuestFormPage() {
     companions,
     reason,
     responsible,
+    appointmentDate,
+    appointmentTime,
     medicalNotes,
     medicalType,
     medicalStatus,
@@ -190,6 +220,8 @@ export default function GuestFormPage() {
     addressStreet,
     addressNumber,
     addressComplement,
+    notes,
+    socialNotes,
     existing,
     modalOpen,
   ]);
@@ -198,19 +230,22 @@ export default function GuestFormPage() {
   const age = dateOfBirth ? calculateAge(dateOfBirth) : null;
   const isMinor = age !== null && age < 18;
 
+  const cpfDigits = onlyDigits(cpf);
   const missingName = submitted && !name.trim();
   const missingDOB = submitted && !dateOfBirth;
   const missingPhone = submitted && !phone.trim();
   const missingCPF = submitted && !cpf.trim();
-  const invalidCPF = submitted && !!cpf.trim() && !validateCPF(cpf);
+  const invalidCPF =
+    (cpfDigits.length === 11 || ((submitted || cpfTouched) && cpfDigits.length > 0)) &&
+    !validateCPF(cpf);
   const missingSusCard = submitted && !susCard.trim();
   const missingResponsible = submitted && isMinor && !responsible.trim();
-  const missingZip = submitted && !addressZip.trim();
   const missingState = submitted && !addressState.trim();
   const missingCity = submitted && !addressCity.trim();
   const missingNeighborhood = submitted && !addressNeighborhood.trim();
   const missingStreet = submitted && !addressStreet.trim();
   const missingNumber = submitted && !addressNumber.trim();
+  const isNoNumber = addressNumber.trim().toUpperCase() === 'S/N';
 
   function errorInputClass(isError: boolean) {
     return isError
@@ -218,34 +253,20 @@ export default function GuestFormPage() {
       : '';
   }
 
-  function formatPhone(v: string) {
-    const s = onlyDigits(v).slice(0, 11);
-    const parts = [s.slice(0, 2), s.slice(2, 7), s.slice(7, 11)];
-    if (s.length <= 2) return parts[0] ? `(${parts[0]}` : '';
-    if (s.length <= 7) return `(${parts[0]}) ${parts[1]}`;
-    return `(${parts[0]}) ${parts[1]}-${parts[2]}`;
-  }
-
   function addCompanion() {
-    setCompanions(prev => [...prev, { name: '', cpf: '' }]);
+    setCompanions(prev => [...prev, { name: '', phone: '', relationship: '' }]);
   }
 
   function removeCompanion(index: number) {
     setCompanions(prev => prev.filter((_, i) => i !== index));
   }
 
-  function updateCompanion(index: number, field: 'name' | 'cpf', val: string) {
+  function updateCompanion(index: number, field: 'name' | 'phone' | 'relationship', val: string) {
     setCompanions(prev => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: val };
       return copy;
     });
-  }
-
-  function formatCEP(v: string) {
-    const s = onlyDigits(v).slice(0, 8);
-    if (s.length <= 5) return s;
-    return `${s.slice(0, 5)}-${s.slice(5)}`;
   }
 
   async function lookupCEP() {
@@ -283,9 +304,11 @@ export default function GuestFormPage() {
     setSusCard(found.susCard || '');
     setHasCompanion(!!found.hasCompanion);
     const parsedComps = parseCompanions(found.companions);
-    setCompanions(parsedComps.length > 0 ? parsedComps : [{ name: '', cpf: '' }]);
+    setCompanions(parsedComps.length > 0 ? parsedComps : [{ name: '', phone: '', relationship: '' }]);
     setReason(found.reason || '');
     setResponsible(found.responsible || '');
+    setAppointmentDate(found.appointmentDate || '');
+    setAppointmentTime(found.appointmentTime || '');
     setMedicalNotes(found.medicalNotes || '');
     setMedicalType(found.medicalType || 'consulta');
     setMedicalStatus(found.medicalStatus || 'aguardando');
@@ -296,16 +319,34 @@ export default function GuestFormPage() {
     setAddressStreet(found.addressStreet || '');
     setAddressNumber(found.addressNumber || '');
     setAddressComplement(found.addressComplement || '');
+    setNotes(found.notes || '');
+    setSocialNotes(found.socialNotes || '');
     setInfo('Dados do hóspede carregados com sucesso.');
     toast.info('Dados carregados com sucesso!');
   }
 
+  async function handleCpfInputChange(val: string) {
+    const formatted = formatCPF(val);
+    setCPF(formatted);
+    if (onlyDigits(formatted).length < 11) {
+      setCpfTouched(false);
+      return;
+    }
+    if (validateCPF(formatted)) {
+      const found = await findGuestByCPF(formatted);
+      if (found && found.id !== existing?.id) {
+        populateFromGuest(found);
+      }
+    }
+  }
+
   async function onCPFBlur() {
-    setInfo(null);
-    setExisting(null);
+    if (onlyDigits(cpf).length > 0) {
+      setCpfTouched(true);
+    }
     if (!validateCPF(cpf)) return;
     const found = await findGuestByCPF(cpf);
-    if (found) {
+    if (found && found.id !== existing?.id) {
       populateFromGuest(found);
     }
   }
@@ -333,21 +374,33 @@ export default function GuestFormPage() {
     if (!phone.trim()) missing.push('Telefone');
     if (!dateOfBirth) missing.push('Data de Nascimento');
     if (isMinor && !responsible.trim()) missing.push('Responsável pelo Hóspede');
-    if (!addressZip.trim()) missing.push('CEP');
     if (!addressState.trim()) missing.push('Estado (UF)');
     if (!addressCity.trim()) missing.push('Cidade');
     if (!addressNeighborhood.trim()) missing.push('Bairro');
     if (!addressStreet.trim()) missing.push('Rua / Logradouro');
-    if (!addressNumber.trim()) missing.push('Número');
+    if (!addressNumber.trim()) missing.push('Número (ou S/N)');
+
+    const fail = (errMsg: string, toastMsg: string) => {
+      setError(errMsg);
+      toast.error(toastMsg);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     if (missing.length > 0) {
-      setError(`Preencha todos os campos obrigatórios: ${missing.join(', ')}.`);
-      toast.error('Preencha os campos obrigatórios.');
+      fail(`Preencha todos os campos obrigatórios: ${missing.join(', ')}.`, 'Preencha os campos obrigatórios.');
       return;
     }
     if (!validateCPF(cpf)) {
-      setError('O CPF informado é inválido.');
-      toast.error('CPF inválido.');
+      fail('O CPF informado é inválido.', 'CPF inválido.');
+      return;
+    }
+    const todayIso = getTodayISO();
+    if (dateOfBirth > todayIso) {
+      fail('A data de nascimento não pode ser no futuro.', 'Data de nascimento inválida.');
+      return;
+    }
+    if (appointmentTime && !isValidTimeBR(appointmentTime)) {
+      fail('O horário da consulta informado é inválido. Use o formato HH:MM (ex: 08:30).', 'Horário da consulta inválido.');
       return;
     }
 
@@ -355,10 +408,25 @@ export default function GuestFormPage() {
       ? companions
           .map(c => ({
             name: c.name.trim(),
-            cpf: c.cpf ? formatCPF(c.cpf) : '',
+            phone: c.phone ? formatPhone(c.phone) : '',
+            relationship: (c.relationship || '').trim(),
           }))
-          .filter(c => c.name.length > 0 || (c.cpf && c.cpf.length > 0))
+          .filter(c => c.name.length > 0 || c.phone.length > 0 || c.relationship.length > 0)
       : [];
+
+    for (const comp of cleanedCompanions) {
+      if (!comp.name) {
+        fail('Informe o nome completo de todos os acompanhantes.', 'Nome do acompanhante obrigatório.');
+        return;
+      }
+      if (comp.phone && onlyDigits(comp.phone).length < 10) {
+        fail(`O celular do acompanhante "${comp.name}" está incompleto (informe DDD + número).`, 'Celular de acompanhante inválido.');
+        return;
+      }
+    }
+
+    const isCurrentlyPresent = existing?.status === 'presente';
+    const nextStatus: Status = isCurrentlyPresent ? 'presente' : 'agendado';
 
     const guestId = existing?.id ?? crypto.randomUUID();
     const g: Guest = {
@@ -372,9 +440,11 @@ export default function GuestFormPage() {
       companions: cleanedCompanions,
       reason,
       responsible: isMinor ? responsible : '',
+      appointmentDate: appointmentDate || undefined,
+      appointmentTime: appointmentTime || undefined,
       medicalNotes,
       medicalType,
-      medicalStatus,
+      medicalStatus: 'aguardando',
       addressZip,
       addressState,
       addressCity,
@@ -382,8 +452,11 @@ export default function GuestFormPage() {
       addressStreet,
       addressNumber,
       addressComplement,
-      status: 'presente' as Status,
-      checkInAt: new Date().toISOString(),
+      notes: notes.trim() || undefined,
+      socialNotes: socialNotes.trim() || undefined,
+      status: nextStatus,
+      checkInAt: isCurrentlyPresent ? existing?.checkInAt : undefined,
+      checkOutAt: undefined,
     };
 
     try {
@@ -391,21 +464,32 @@ export default function GuestFormPage() {
       await upsertGuest(g);
 
       if (user) {
+        const apptSummary = formatAppointmentDisplay(appointmentDate, appointmentTime);
+        const apptText = apptSummary ? ` (Consulta: ${apptSummary})` : '';
         await addAudit({
           id: crypto.randomUUID(),
           guestId: g.id,
-          toStatus: 'presente',
+          fromStatus: existing?.status,
+          toStatus: nextStatus,
           at: new Date().toISOString(),
           byUser: user.username,
-          note: existing
-            ? 'Nova estadia iniciada (Cadastro atualizado)'
-            : 'Cadastro realizado e 1ª estadia iniciada',
+          note: isCurrentlyPresent
+            ? `Dados atualizados durante estadia ativa${apptText}`
+            : existing
+              ? `Encaminhado pela Secretaria de Saúde${apptText}`
+              : `Cadastro realizado e encaminhado para a Casa de Apoio${apptText}`,
         });
       }
 
       clearDraft();
-      toast.success(existing ? 'Nova estadia registrada com sucesso!' : 'Hóspede cadastrado com sucesso!');
-      nav('/dashboard');
+      toast.success(
+        isCurrentlyPresent
+          ? 'Dados da estadia ativa atualizados com sucesso!'
+          : existing
+            ? 'Hóspede encaminhado! Aguardando chegada na Casa de Apoio.'
+            : 'Hóspede cadastrado e encaminhado para a Casa de Apoio!'
+      );
+      nav(isCurrentlyPresent ? `/hospedes/${g.id}` : '/recepcao?tab=agendado');
     } catch {
       setError('Falha ao salvar hóspede. Tente novamente.');
       toast.error('Erro ao salvar hóspede.');
@@ -415,7 +499,7 @@ export default function GuestFormPage() {
   }
 
   return (
-    <div className="container-page py-8 max-w-4xl space-y-6 animate-in fade-in duration-300">
+    <div className="container-page py-6 space-y-5">
       {/* Pre-check CPF Modal */}
       <CpfPreCheckModal
         open={modalOpen}
@@ -423,524 +507,607 @@ export default function GuestFormPage() {
         onConfirm={handleModalConfirm}
       />
 
-      {/* Header with Back Button */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link
-            to="/dashboard"
-            onClick={() => clearDraft()}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
-            title="Voltar ao Painel"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              {existing ? 'Editar Hóspede / Nova Estadia' : 'Cadastrar Novo Hóspede'}
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Preencha os dados do hóspede para registrar a estadia na Casa de Apoio
-            </p>
-          </div>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:min-h-[44px]">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
+            {existing ? 'Editar Hóspede / Nova Estadia' : 'Cadastrar Novo Hóspede'}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Preencha os dados do paciente e da consulta para encaminhar à Casa de Apoio
+          </p>
         </div>
 
         <button
           type="button"
-          className="btn-secondary text-xs font-semibold"
+          className="btn-secondary self-start sm:self-auto cursor-pointer"
           onClick={() => setModalOpen(true)}
         >
           Consultar outro CPF
         </button>
       </div>
 
-      {info && (
-        <div className="p-4 rounded-2xl bg-brand-50 dark:bg-brand-950/40 border border-brand-200/70 dark:border-brand-800/50 flex items-center gap-3 text-brand-700 dark:text-brand-300 text-sm font-medium animate-in fade-in">
-          <Sparkles className="h-5 w-5 text-brand-600 shrink-0" />
+      {existing?.status === 'presente' && (
+        <div className="p-3.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-800 dark:text-amber-200 text-xs font-medium">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              Atenção: <strong>{existing.name}</strong> já está com estadia ativa (<strong>Na casa</strong>). Salvar este formulário apenas atualizará os dados sem apagar o registro de entrada.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => nav(`/hospedes/${existing.id}`)}
+            className="btn-secondary !py-1.5 !px-3 text-xs shrink-0 self-start sm:self-auto cursor-pointer"
+          >
+            Abrir Ficha / Saída
+          </button>
+        </div>
+      )}
+
+      {info && existing?.status !== 'presente' && (
+        <div className="p-3.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/50 flex items-center gap-2.5 text-blue-800 dark:text-blue-200 text-xs font-medium">
+          <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
           <span>{info}</span>
         </div>
       )}
 
       {error && (
-        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-800/50 flex items-center gap-3 text-rose-700 dark:text-rose-300 text-sm font-medium animate-in fade-in">
-          <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />
+        <div className="p-3.5 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/50 flex items-center gap-2.5 text-rose-800 dark:text-rose-200 text-xs font-medium">
+          <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      <form noValidate onSubmit={submit} className="space-y-6">
-        {/* Card 1: Dados Pessoais */}
-        <div className="card p-6 sm:p-7 space-y-5">
-          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="p-2 rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-400">
-              <User className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Identificação e Dados Pessoais
+      <form noValidate onSubmit={submit} className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Coluna Esquerda: 1. Consulta -> 2. Dados Pessoais -> 3. Observações */}
+        <div className="lg:col-span-7 space-y-5">
+          {/* Card 1: Consulta e Atendimento Médico */}
+          <div className="card p-5 sm:p-6 space-y-4">
+            <div className="pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                1. Consulta e Atendimento Médico
               </h2>
-              <p className="text-xs text-slate-400">Campos fundamentais para o registro do cidadão</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="label">Dia da Consulta</label>
+                  <DateInput
+                    value={appointmentDate}
+                    onChange={setAppointmentDate}
+                    defaultToToday
+                  />
+                </div>
+
+                <div>
+                  <label className="label">Hora da Consulta</label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={5}
+                      className={`input pr-14 tabular-nums ${
+                        submitted && appointmentTime && !isValidTimeBR(appointmentTime)
+                          ? 'border-rose-400 dark:border-rose-500 ring-2 ring-rose-500/15'
+                          : ''
+                      }`}
+                      value={appointmentTime}
+                      onChange={e => setAppointmentTime(formatTimeBR(e.target.value))}
+                      autoComplete="off"
+                    />
+                    <div className="absolute right-2 flex items-center gap-0.5">
+                      {appointmentTime && (
+                        <button
+                          type="button"
+                          onClick={() => setAppointmentTime('')}
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                          title="Limpar horário"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <span className="p-1 text-slate-400 pointer-events-none">
+                        <Clock className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                  </div>
+                  {submitted && appointmentTime && !isValidTimeBR(appointmentTime) && (
+                    <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      Horário inválido (00:00 a 23:59).
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Hospital / Clínica de Atendimento</label>
+                <SmartAutocomplete
+                  value={medicalNotes}
+                  onChange={setMedicalNotes}
+                  options={hospitalOptions}
+                  emptyText="Hospital/Clínica não listado. Pressione Enter para usar o nome digitado."
+                />
+              </div>
+
+              <div>
+                <label className="label">Procedimento / Motivo</label>
+                <SmartAutocomplete
+                  value={reason}
+                  onChange={setReason}
+                  options={PROCEDURE_SUGGESTIONS}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="label">
-                Nome Completo <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingName)}`}
-                value={name}
-                onChange={e => setName(e.target.value)}
-              />
-              {missingName && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  O nome completo é obrigatório.
-                </span>
-              )}
+          {/* Card 2: Dados Pessoais */}
+          <div className="card p-5 sm:p-6 space-y-4">
+            <div className="pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                2. Dados Pessoais
+              </h2>
             </div>
 
-            <div>
-              <label className="label">
-                CPF <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingCPF || invalidCPF)}`}
-                value={cpf}
-                onChange={e => setCPF(formatCPF(e.target.value))}
-                onBlur={onCPFBlur}
-              />
-              {missingCPF && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  CPF é obrigatório.
-                </span>
-              )}
-              {invalidCPF && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  CPF inválido. Verifique os números digitados.
-                </span>
-              )}
-            </div>
-
-            <div>
-              <label className="label">
-                Nº do Cartão do SUS <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingSusCard)}`}
-                value={susCard}
-                onChange={e => setSusCard(formatSUS(e.target.value))}
-              />
-              {missingSusCard && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Nº do Cartão do SUS é obrigatório.
-                </span>
-              )}
-            </div>
-
-            <div>
-              <label className="label flex items-center justify-between">
-                <span>
-                  Telefone <span className="text-rose-500">*</span>
-                </span>
-                <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 normal-case">
-                  (DDD) 9+NUMERO
-                </span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingPhone)}`}
-                value={phone}
-                onChange={e => setPhone(formatPhone(e.target.value))}
-              />
-              {missingPhone && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Telefone é obrigatório.
-                </span>
-              )}
-            </div>
-
-            <div>
-              <label className="label">
-                Data de Nascimento <span className="text-rose-500">*</span>
-              </label>
-              <DateInput
-                value={dateOfBirth}
-                onChange={setDOB}
-                hasError={missingDOB}
-              />
-              {missingDOB && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Data de nascimento é obrigatória.
-                </span>
-              )}
-              {age !== null && (
-                <span className="text-xs text-slate-500 font-medium mt-1 inline-block">
-                  Idade calculada: <strong>{age} anos</strong> {isMinor && '(Menor de 18 anos)'}
-                </span>
-              )}
-            </div>
-
-            {isMinor && (
-              <div className="md:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
                 <label className="label">
-                  Responsável pelo Hóspede <span className="text-rose-500">*</span>
+                  Nome Completo <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
                 </label>
                 <input
-                  className={`input ${errorInputClass(missingResponsible)}`}
-                  value={responsible}
-                  onChange={e => setResponsible(e.target.value)}
+                  className={`input ${errorInputClass(missingName)}`}
+                  value={name}
+                  onChange={e => setName(e.target.value)}
                 />
-                {missingResponsible && (
-                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                {missingName && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                    Responsável é obrigatório para menores de 18 anos.
+                    O nome completo é obrigatório.
                   </span>
                 )}
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Card 2: Acompanhantes */}
-        <div className="card p-6 sm:p-7 space-y-5">
-          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="p-2 rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
-              <Users className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Acompanhantes
-              </h2>
-              <p className="text-xs text-slate-400">Registro de familiares ou acompanhantes durante a estadia</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded text-brand-600 focus:ring-brand-500 border-slate-300 dark:border-slate-700 cursor-pointer"
-                checked={hasCompanion}
-                onChange={e => {
-                  setHasCompanion(e.target.checked);
-                  if (e.target.checked && companions.length === 0) {
-                    setCompanions([{ name: '', cpf: '' }]);
-                  }
-                }}
-              />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Hóspede possui acompanhante(s)
-              </span>
-            </label>
-
-            {hasCompanion && (
-              <div className="space-y-3.5 pt-1 animate-in fade-in duration-200">
-                {companions.map((comp, idx) => (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800/80 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 text-[11px] font-bold">
-                          {idx + 1}
-                        </span>
-                        {idx + 1}º Acompanhante
-                      </span>
-                      {companions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeCompanion(idx)}
-                          className="text-xs font-semibold text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 flex items-center gap-1 p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                          title="Remover este acompanhante"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>Remover</span>
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
-                      <div className="sm:col-span-7">
-                        <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 block">
-                          Nome do Acompanhante
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={comp.name}
-                          onChange={e => updateCompanion(idx, 'name', e.target.value)}
-                        />
-                      </div>
-
-                      <div className="sm:col-span-5">
-                        <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center justify-between">
-                          <span>CPF</span>
-                          <span className="text-[10px] text-slate-400 font-normal">(Opcional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          className="input"
-                          value={comp.cpf || ''}
-                          maxLength={14}
-                          onChange={e =>
-                            updateCompanion(idx, 'cpf', formatCPF(e.target.value))
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  type="button"
-                  onClick={addCompanion}
-                  className="btn-secondary py-2.5 px-4 text-xs font-semibold w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-brand-500 transition-all cursor-pointer shadow-xs"
-                >
-                  <Plus className="h-4 w-4 text-brand-600 dark:text-brand-400" />
-                  <span>+ Adicionar outro acompanhante ({companions.length + 1}º)</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Card 3: Informações de Saúde e Atendimento com Autocomplete Inteligente */}
-        <div className="card p-6 sm:p-7 space-y-5">
-          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
-              <Stethoscope className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Informações de Saúde e Atendimento
-              </h2>
-              <p className="text-xs text-slate-400">
-                O que o hóspede irá fazer e qual hospital/clínica em Goiânia ou Aparecida de Goiânia
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* Campo Inteligente: Procedimento / Motivo */}
-            <div className="md:col-span-2">
-              <label className="label flex items-center justify-between">
-                <span>Procedimento / O que o hóspede irá fazer</span>
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 normal-case">(Opcional)</span>
-              </label>
-              <SmartAutocomplete
-                value={reason}
-                onChange={setReason}
-                options={PROCEDURE_SUGGESTIONS}
-              />
-            </div>
-
-            {/* Campo Inteligente: Hospital / Clínica */}
-            <div className="md:col-span-2">
-              <label className="label flex items-center justify-between">
-                <span>Hospital / Clínica / Centro de Atendimento (Goiânia e Aparecida de Goiânia)</span>
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 normal-case">(Opcional)</span>
-              </label>
-              <SmartAutocomplete
-                value={medicalNotes}
-                onChange={setMedicalNotes}
-                options={hospitalOptions}
-                emptyText="Hospital/Clínica não listado. Pressione Enter para usar o nome digitado."
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="label flex items-center justify-between">
-                <span>Status da Pendência Médica</span>
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 normal-case">(Opcional)</span>
-              </label>
-              <select
-                className="input"
-                value={medicalStatus}
-                onChange={e => setMedicalStatus((e.target.value as Guest['medicalStatus']) || 'aguardando')}
-              >
-                <option value="aguardando">Aguardando atendimento</option>
-                <option value="concluida">Atendimento concluído</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Endereço */}
-        <div className="card p-6 sm:p-7 space-y-5">
-          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-              <MapPin className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Endereço de Origem
-              </h2>
-              <p className="text-xs text-slate-400">Localização e residência de origem do hóspede (Campos obrigatórios)</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="label">
-                CEP <span className="text-rose-500">*</span>
-              </label>
-              <div className="flex gap-2">
+              <div>
+                <label className="label">
+                  CPF <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
                 <input
-                  className={`input ${errorInputClass(missingZip)}`}
-                  value={addressZip}
-                  onChange={e => setAddressZip(formatCEP(e.target.value))}
-                  onBlur={lookupCEP}
+                  className={`input tabular-nums ${errorInputClass(missingCPF || invalidCPF)}`}
+                  value={cpf}
+                  maxLength={14}
+                  inputMode="numeric"
+                  onChange={e => handleCpfInputChange(e.target.value)}
+                  onBlur={onCPFBlur}
                 />
-                <button
-                  type="button"
-                  onClick={lookupCEP}
-                  disabled={viaCepLoading}
-                  className="btn-secondary px-3 shrink-0"
-                  title="Buscar dados do CEP"
-                >
-                  {viaCepLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                </button>
+                {missingCPF && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    CPF é obrigatório.
+                  </span>
+                )}
+                {invalidCPF && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    CPF inválido. Verifique os números digitados.
+                  </span>
+                )}
               </div>
-              {missingZip && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  CEP é obrigatório.
-                </span>
-              )}
-              {cepInfo && <span className="text-xs text-slate-500 mt-1 inline-block">{cepInfo}</span>}
-            </div>
 
-            <div>
-              <label className="label">
-                Estado (UF) <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingState)}`}
-                value={addressState}
-                onChange={e => setAddressState(e.target.value)}
-              />
-              {missingState && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Estado (UF) é obrigatório.
-                </span>
-              )}
-            </div>
+              <div>
+                <label className="label">
+                  Nº do Cartão do SUS <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input tabular-nums ${errorInputClass(missingSusCard)}`}
+                  value={susCard}
+                  onChange={e => setSusCard(formatSUS(e.target.value))}
+                />
+                {missingSusCard && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Nº do Cartão do SUS é obrigatório.
+                  </span>
+                )}
+              </div>
 
-            <div>
-              <label className="label">
-                Cidade <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingCity)}`}
-                value={addressCity}
-                onChange={e => setAddressCity(e.target.value)}
-              />
-              {missingCity && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Cidade é obrigatória.
-                </span>
-              )}
-            </div>
+              <div>
+                <label className="label">
+                  Telefone <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input tabular-nums ${errorInputClass(missingPhone)}`}
+                  value={phone}
+                  onChange={e => setPhone(formatPhone(e.target.value))}
+                />
+                {missingPhone && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Telefone é obrigatório.
+                  </span>
+                )}
+              </div>
 
-            <div>
-              <label className="label">
-                Bairro <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingNeighborhood)}`}
-                value={addressNeighborhood}
-                onChange={e => setAddressNeighborhood(e.target.value)}
-              />
-              {missingNeighborhood && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Bairro é obrigatório.
-                </span>
-              )}
-            </div>
+              <div>
+                <label className="label">
+                  Data de Nascimento <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <DateInput
+                  value={dateOfBirth}
+                  onChange={setDOB}
+                  hasError={missingDOB}
+                  maxDate={getTodayISO()}
+                />
+                {missingDOB && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Data de nascimento é obrigatória.
+                  </span>
+                )}
+                {age !== null && (
+                  <span className="text-xs text-slate-500 font-medium mt-1 inline-block tabular-nums">
+                    Idade: <strong>{age} anos</strong> {isMinor && '(Menor de 18 anos)'}
+                  </span>
+                )}
+              </div>
 
-            <div>
-              <label className="label">
-                Rua / Logradouro <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingStreet)}`}
-                value={addressStreet}
-                onChange={e => setAddressStreet(e.target.value)}
-              />
-              {missingStreet && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Rua / Logradouro é obrigatório.
-                </span>
-              )}
-            </div>
-
-            <div>
-              <label className="label">
-                Número <span className="text-rose-500">*</span>
-              </label>
-              <input
-                className={`input ${errorInputClass(missingNumber)}`}
-                value={addressNumber}
-                onChange={e => setAddressNumber(e.target.value)}
-              />
-              {missingNumber && (
-                <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  Número é obrigatório.
-                </span>
+              {isMinor && (
+                <div className="sm:col-span-2">
+                  <label className="label">
+                    Responsável pelo Hóspede <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                  </label>
+                  <input
+                    className={`input ${errorInputClass(missingResponsible)}`}
+                    value={responsible}
+                    onChange={e => setResponsible(e.target.value)}
+                  />
+                  {missingResponsible && (
+                    <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      Responsável é obrigatório para menores de 18 anos.
+                    </span>
+                  )}
+                </div>
               )}
             </div>
+          </div>
 
-            <div className="md:col-span-3">
-              <label className="label flex items-center justify-between">
-                <span>Complemento</span>
-                <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 normal-case">(Opcional)</span>
-              </label>
-              <input
-                className="input"
-                value={addressComplement}
-                onChange={e => setAddressComplement(e.target.value)}
-              />
+          {/* Card 3: Observações da Estadia */}
+          <div className="card p-5 sm:p-6 space-y-4">
+            <div className="pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                3. Observações (opcional)
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Observações da estadia</label>
+                <textarea
+                  rows={3}
+                  className="input min-h-[76px] py-2 resize-y"
+                  placeholder="Dieta, alergias, cadeira de rodas, horários de medicação..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Observações sociais</label>
+                <textarea
+                  rows={3}
+                  className="input min-h-[76px] py-2 resize-y"
+                  placeholder="Anotações de assistência social, situação familiar ou demandas..."
+                  value={socialNotes}
+                  onChange={e => setSocialNotes(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Action Form Footer */}
-        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4">
-          <Link
-            to="/dashboard"
-            onClick={() => clearDraft()}
-            className="btn-secondary w-full sm:w-auto text-center"
-          >
-            Cancelar
-          </Link>
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn-primary w-full sm:w-auto shadow-md"
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Salvando Dados...</span>
-              </>
-            ) : (
-              <>
-                <Check className="h-4 w-4" />
-                <span>{existing ? 'Atualizar e Iniciar Estadia' : 'Salvar e Registrar Entrada'}</span>
-              </>
-            )}
-          </button>
+        {/* Coluna Direita: 4. Acompanhantes -> 5. Endereço -> Ações */}
+        <div className="lg:col-span-5 space-y-5">
+          {/* Card 4: Acompanhantes */}
+          <div className="card p-5 sm:p-6 space-y-4">
+            <div className="pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                4. Acompanhantes
+              </h2>
+            </div>
+
+            <div className="space-y-3.5">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded text-brand-600 focus:ring-brand-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                  checked={hasCompanion}
+                  onChange={e => {
+                    setHasCompanion(e.target.checked);
+                    if (e.target.checked && companions.length === 0) {
+                      setCompanions([{ name: '', phone: '', relationship: '' }]);
+                    }
+                  }}
+                />
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Hóspede possui acompanhante(s)
+                </span>
+              </label>
+
+              {hasCompanion && (
+                <div className="space-y-3 pt-1">
+                  {companions.map((comp, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-md bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                          {idx + 1}º Acompanhante
+                        </span>
+                        {companions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeCompanion(idx)}
+                            className="text-xs font-medium text-rose-600 hover:text-rose-700 dark:hover:text-rose-400 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            title="Remover este acompanhante"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>Remover</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label className="label">Nome do Acompanhante</label>
+                          <input
+                            type="text"
+                            className="input"
+                            value={comp.name}
+                            onChange={e => updateCompanion(idx, 'name', e.target.value)}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="label">Parentesco</label>
+                            <select
+                              className="input"
+                              value={comp.relationship || ''}
+                              onChange={e => updateCompanion(idx, 'relationship', e.target.value)}
+                            >
+                              <option value="">Selecione...</option>
+                              {COMPANION_RELATIONSHIPS.map(rel => (
+                                <option key={rel} value={rel}>
+                                  {rel}
+                                </option>
+                              ))}
+                              {comp.relationship &&
+                                !(COMPANION_RELATIONSHIPS as readonly string[]).includes(comp.relationship) && (
+                                  <option value={comp.relationship}>{comp.relationship}</option>
+                                )}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="label">Celular</label>
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              placeholder="(64) 99999-9999"
+                              className="input tabular-nums"
+                              value={comp.phone || ''}
+                              maxLength={15}
+                              onChange={e =>
+                                updateCompanion(idx, 'phone', formatPhone(e.target.value))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={addCompanion}
+                    className="btn-secondary w-full cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Adicionar outro acompanhante ({companions.length + 1}º)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 5: Endereço de Origem */}
+          <div className="card p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                5. Endereço de Origem
+              </h2>
+              {(addressCity.trim().toLowerCase() !== 'quirinópolis' ||
+                addressState.trim().toUpperCase() !== 'GO') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddressCity('Quirinópolis');
+                    setAddressState('GO');
+                    if (!addressZip.trim()) setAddressZip('75860-000');
+                  }}
+                  className="text-xs font-medium text-brand-700 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200/70 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  Usar Quirinópolis - GO
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="sm:col-span-5">
+                <label className="label">CEP</label>
+                <div className="flex gap-1.5">
+                  <input
+                    className="input tabular-nums"
+                    value={addressZip}
+                    onChange={e => setAddressZip(formatCEP(e.target.value))}
+                    onBlur={lookupCEP}
+                  />
+                  <button
+                    type="button"
+                    onClick={lookupCEP}
+                    disabled={viaCepLoading}
+                    className="btn-secondary px-2.5 shrink-0 cursor-pointer"
+                    title="Buscar dados do CEP"
+                  >
+                    {viaCepLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                {cepInfo && <span className="text-xs text-slate-500 mt-1 inline-block">{cepInfo}</span>}
+              </div>
+
+              <div className="sm:col-span-5">
+                <label className="label">
+                  Cidade <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input ${errorInputClass(missingCity)}`}
+                  value={addressCity}
+                  onChange={e => setAddressCity(e.target.value)}
+                />
+                {missingCity && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Cidade é obrigatória.
+                  </span>
+                )}
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="label">
+                  UF <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input uppercase ${errorInputClass(missingState)}`}
+                  maxLength={2}
+                  value={addressState}
+                  onChange={e => setAddressState(e.target.value.toUpperCase())}
+                />
+                {missingState && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Obrigatório.
+                  </span>
+                )}
+              </div>
+
+              <div className="sm:col-span-5">
+                <label className="label">
+                  Bairro <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input ${errorInputClass(missingNeighborhood)}`}
+                  value={addressNeighborhood}
+                  onChange={e => setAddressNeighborhood(e.target.value)}
+                />
+                {missingNeighborhood && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Bairro é obrigatório.
+                  </span>
+                )}
+              </div>
+
+              <div className="sm:col-span-4">
+                <label className="label">
+                  Rua / Logradouro <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                <input
+                  className={`input ${errorInputClass(missingStreet)}`}
+                  value={addressStreet}
+                  onChange={e => setAddressStreet(e.target.value)}
+                />
+                {missingStreet && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Rua é obrigatória.
+                  </span>
+                )}
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="label">
+                  Número <span className="text-slate-400 dark:text-slate-500 font-normal">*</span>
+                </label>
+                {!isNoNumber && (
+                  <input
+                    className={`input ${errorInputClass(missingNumber)}`}
+                    value={addressNumber}
+                    onChange={e => setAddressNumber(e.target.value)}
+                  />
+                )}
+                <label
+                  className={`inline-flex items-center gap-2 cursor-pointer select-none transition-colors ${
+                    isNoNumber
+                      ? 'h-9 px-3 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 w-full'
+                      : 'mt-1.5 text-xs text-slate-400 dark:text-slate-500 opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded text-brand-600 focus:ring-brand-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                    checked={isNoNumber}
+                    onChange={e => setAddressNumber(e.target.checked ? 'S/N' : '')}
+                  />
+                  <span>Sem número</span>
+                </label>
+                {missingNumber && (
+                  <span className="text-xs font-medium text-rose-600 dark:text-rose-400 flex items-center gap-1.5 mt-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Informe o nº.
+                  </span>
+                )}
+              </div>
+
+              <div className="sm:col-span-12">
+                <label className="label">Complemento</label>
+                <input
+                  className="input"
+                  value={addressComplement}
+                  onChange={e => setAddressComplement(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Action Form Footer */}
+          <div className="card p-4 flex flex-col sm:flex-row items-center justify-end gap-2.5">
+            <Link
+              to="/hospedes"
+              onClick={() => clearDraft()}
+              className="btn-secondary w-full sm:w-auto text-center"
+            >
+              Cancelar
+            </Link>
+            <button
+              type="submit"
+              disabled={saving}
+              className="btn-primary w-full sm:flex-1 py-2.5 cursor-pointer"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Salvando Dados...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>{existing ? 'Atualizar e Encaminhar' : 'Salvar e Encaminhar'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </form>
     </div>

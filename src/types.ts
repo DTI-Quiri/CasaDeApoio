@@ -1,4 +1,4 @@
-export type Status = 'presente' | 'finalizado';
+export type Status = 'agendado' | 'presente' | 'finalizado';
 
 export interface AuditEntry {
   id: string;
@@ -12,6 +12,9 @@ export interface AuditEntry {
 
 export interface Companion {
   name: string;
+  phone?: string;
+  relationship?: string;
+  /** Campo legado mantido apenas para leitura de registros antigos */
   cpf?: string;
 }
 
@@ -26,6 +29,9 @@ export interface Guest {
   companions?: Companion[];
   reason?: string;
   responsible?: string;
+  // Consulta / Atendimento agendado na Secretaria de Saúde
+  appointmentDate?: string; // ISO date (yyyy-mm-dd)
+  appointmentTime?: string; // HH:mm
   // Observações
   notes?: string;
   socialNotes?: string;
@@ -57,4 +63,5 @@ export interface User {
 
 export interface Settings {
   alertDays: number;
+  maxCapacity?: number;
 }

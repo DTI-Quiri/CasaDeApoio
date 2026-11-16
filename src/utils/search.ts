@@ -1,6 +1,6 @@
 import type { Guest } from '../types';
-
-import { parseCompanions } from './companion';
+import { isoToBrDate } from './cpf.ts';
+import { parseCompanions } from './companion.ts';
 
 export function normalizeText(text?: string | null): string {
   if (!text) return '';
@@ -34,6 +34,9 @@ export function matchGuest(guest: Guest, query: string): boolean {
 
   const companionsList = parseCompanions(guest.companions);
   const companionNames = companionsList.map(c => c.name).join(' ');
+  const companionRelationships = companionsList.map(c => c.relationship || '').join(' ');
+  const companionPhones = companionsList.map(c => c.phone || '').join(' ');
+  const companionPhoneDigits = companionPhones.replace(/\D/g, '');
   const companionCpfs = companionsList.map(c => c.cpf || '').join(' ');
   const companionCpfDigits = companionCpfs.replace(/\D/g, '');
 
@@ -48,6 +51,9 @@ export function matchGuest(guest: Guest, query: string): boolean {
     guest.medicalNotes,
     guest.medicalType,
     guest.medicalStatus,
+    guest.appointmentDate,
+    guest.appointmentDate ? isoToBrDate(guest.appointmentDate) : '',
+    guest.appointmentTime,
     guest.notes,
     guest.socialNotes,
     guest.addressStreet,
@@ -58,10 +64,12 @@ export function matchGuest(guest: Guest, query: string): boolean {
     guest.addressZip,
     guest.addressComplement,
     companionNames,
+    companionRelationships,
+    companionPhones,
     companionCpfs,
   ].filter(Boolean).join(' '));
 
-  // Dígitos numéricos isolados para busca precisa de CPF, telefone, SUS, CEP, CPF de acompanhante
+  // Dígitos numéricos isolados para busca precisa de CPF, telefone, SUS, CEP, contato do acompanhante
   const cpfDigits = (guest.cpf || '').replace(/\D/g, '');
   const phoneDigits = (guest.phone || '').replace(/\D/g, '');
   const susDigits = (guest.susCard || '').replace(/\D/g, '');
@@ -71,10 +79,11 @@ export function matchGuest(guest: Guest, query: string): boolean {
     // 1. Busca textual direta no texto composto
     if (searchableText.includes(term)) return true;
 
-    // 2. Busca por dígitos (caso o usuário digite parte de CPF, celular, SUS, CEP ou CPF do acompanhante)
+    // 2. Busca por dígitos (caso o usuário digite parte de CPF, celular, SUS, CEP ou contato do acompanhante)
     const termDigits = term.replace(/\D/g, '');
     if (termDigits.length >= 2) {
       if (cpfDigits.includes(termDigits)) return true;
+      if (companionPhoneDigits.includes(termDigits)) return true;
       if (companionCpfDigits.includes(termDigits)) return true;
       if (phoneDigits.includes(termDigits)) return true;
       if (susDigits.includes(termDigits)) return true;

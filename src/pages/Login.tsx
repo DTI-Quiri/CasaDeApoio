@@ -23,7 +23,7 @@ export default function LoginPage() {
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const from = (loc.state as { from?: { pathname?: string } })?.from?.pathname || '/dashboard';
+  const from = (loc.state as { from?: { pathname?: string } })?.from?.pathname || '/painel';
 
   // 1. Resolve client IP and check database lockout on mount
   useEffect(() => {
@@ -110,21 +110,13 @@ export default function LoginPage() {
         setRemainingSeconds(lockResult.remainingSeconds);
       }
 
-      if (res.error === 'USER_NOT_FOUND') {
+      if (res.error === 'USER_NOT_FOUND' || res.error === 'INVALID_PASSWORD') {
         if (lockResult.attempts >= 5) {
-          setError(`Usuário não encontrado. IP bloqueado temporariamente (${lockResult.attempts} erros).`);
+          setError(`Credenciais inválidas. IP bloqueado temporariamente (${lockResult.attempts} tentativas).`);
         } else if (lockResult.attempts >= 3) {
-          setError(`Usuário não encontrado. Tentativa ${lockResult.attempts} de 5 antes do bloqueio.`);
+          setError(`Usuário ou senha incorretos. Tentativa ${lockResult.attempts} de 5 antes do bloqueio.`);
         } else {
-          setError('Usuário incorreto ou não encontrado no sistema.');
-        }
-      } else if (res.error === 'INVALID_PASSWORD') {
-        if (lockResult.attempts >= 5) {
-          setError(`Senha incorreta. IP bloqueado temporariamente (${lockResult.attempts} erros).`);
-        } else if (lockResult.attempts >= 3) {
-          setError(`Senha incorreta. Tentativa ${lockResult.attempts} de 5 antes do bloqueio.`);
-        } else {
-          setError('Senha incorreta. Verifique os dados digitados.');
+          setError('Usuário ou senha incorretos. Verifique os dados digitados.');
         }
       } else {
         setError('Erro ao conectar ao servidor. Tente novamente.');
@@ -137,53 +129,68 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center p-4 sm:p-6 bg-slate-50/60 dark:bg-slate-950 overflow-hidden selection:bg-blue-500/20">
-      {/* Ambient glow lights */}
-      <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[550px] h-[350px] bg-gradient-to-tr from-blue-400/10 to-indigo-300/10 dark:from-blue-600/10 dark:to-indigo-500/10 blur-[100px] pointer-events-none rounded-full" />
-      <div className="absolute -bottom-20 right-1/4 w-[400px] h-[300px] bg-slate-200/40 dark:bg-blue-900/5 blur-[90px] pointer-events-none rounded-full" />
-
-      {/* Main Card */}
-      <div className="relative w-full max-w-[420px] z-10">
-        <div className="bg-white/95 dark:bg-slate-900/90 backdrop-blur-xl border border-slate-200/70 dark:border-slate-800/80 rounded-3xl p-8 sm:p-10 shadow-xl shadow-slate-200/50 dark:shadow-2xl dark:shadow-black/40 transition-all duration-300">
-          {/* Top Theme Toggle */}
-          <div className="flex justify-end -mt-2 -mr-2 mb-2">
-            <ThemeToggle />
-          </div>
-
-          {/* Logo & Title */}
-          <div className="flex flex-col items-center text-center mb-8">
-            <div className="relative mb-4 transition-transform duration-300 hover:scale-105">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 bg-[#eef2f6] dark:bg-[#090d16]">
+      <div className="w-full max-w-[780px] rounded-2xl overflow-hidden border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-glass grid grid-cols-1 md:grid-cols-12">
+        {/* Coluna Institucional */}
+        <div className="md:col-span-5 bg-brand-800 dark:bg-brand-950 text-white p-7 sm:p-8 flex flex-col justify-between gap-8">
+          <div className="flex md:flex-col items-center md:items-start gap-4 md:gap-5">
+            <div className="h-14 w-14 rounded-2xl bg-white p-2 flex items-center justify-center shadow-sm shrink-0">
               <img
                 src="/Brasao-Quirinopolis.png"
                 alt="Brasão de Quirinópolis"
-                className="h-16 w-auto object-contain drop-shadow-sm"
+                className="h-full w-full object-contain"
               />
             </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-brand-200">
+                Prefeitura de Quirinópolis
+              </p>
+              <h1 className="text-xl font-bold tracking-tight text-white mt-0.5">
+                Casa de Apoio
+              </h1>
+              <p className="text-xs text-brand-100/85 mt-1 leading-relaxed">
+                Secretaria Municipal de Saúde · Controle de acolhimento, consultas e estadias.
+              </p>
+            </div>
+          </div>
 
-            <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">
-              Casa de Apoio
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Acesse sua conta para gerenciar estadias e hóspedes
+          <div className="hidden md:block pt-5 border-t border-white/15">
+            <p className="text-[11px] text-brand-200/80">
+              Acesso restrito à equipe autorizada da recepção e administração.
             </p>
+          </div>
+        </div>
+
+        {/* Coluna Formulário */}
+        <div className="md:col-span-7 p-7 sm:p-9">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
+                Entrar no sistema
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Informe seu usuário e senha para continuar
+              </p>
+            </div>
+            <ThemeToggle />
           </div>
 
           {/* Database-backed IP Lockout Banner */}
           {isLockedOut && (
-            <div className="mb-5 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 dark:border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs animate-in fade-in duration-200 shadow-sm">
-              <div className="flex items-center gap-2.5 font-bold text-sm mb-1 text-amber-800 dark:text-amber-200">
-                <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+            <div className="mb-4 p-3.5 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200 text-xs">
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                <ShieldAlert className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
                 <span>Acesso Bloqueado Temporariamente</span>
               </div>
-              <p className="text-xs text-amber-700/90 dark:text-amber-300/90 leading-relaxed">
+              <p className="text-xs text-amber-700 dark:text-amber-300">
                 Este IP/usuário errou as credenciais <strong>{attempts} vezes</strong> consecutivas.
               </p>
-              <div className="mt-3 flex items-center justify-between bg-amber-500/15 dark:bg-amber-950/40 rounded-xl px-3 py-2 border border-amber-500/20">
+              <div className="mt-2.5 flex items-center justify-between bg-white/70 dark:bg-slate-900/60 rounded px-2.5 py-1.5 border border-amber-200/80 dark:border-amber-800/50">
                 <span className="flex items-center gap-1.5 font-medium text-[11px]">
                   <Clock className="h-3.5 w-3.5" />
                   Liberando em:
                 </span>
-                <span className="font-mono font-bold text-sm text-amber-900 dark:text-amber-100">
+                <span className="font-mono font-semibold text-xs tabular-nums">
                   {remainingSeconds}s
                 </span>
               </div>
@@ -192,10 +199,8 @@ export default function LoginPage() {
 
           {/* Feedback error alert */}
           {error && !isLockedOut && (
-            <div className="mb-5 p-3.5 rounded-2xl bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-medium flex items-center gap-2.5 animate-in fade-in duration-200">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-900/80 text-rose-600 dark:text-rose-200 font-bold text-[11px]">
-                {attempts >= 3 ? <AlertTriangle className="h-3.5 w-3.5" /> : '!'}
-              </span>
+            <div className="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-medium flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
               <span className="leading-snug">{error}</span>
             </div>
           )}
@@ -203,22 +208,19 @@ export default function LoginPage() {
           {/* Login Form */}
           <form noValidate onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label
-                className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 ml-0.5"
-                htmlFor="username-input"
-              >
+              <label className="label" htmlFor="username-input">
                 Usuário
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <User className="h-4 w-4" />
                 </div>
                 <input
                   id="username-input"
-                  className={`w-full rounded-2xl border bg-slate-50/70 dark:bg-slate-950/60 pl-10 pr-3.5 py-3 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-all duration-200 focus:bg-white dark:focus:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`input !pl-9 ${
                     error && !username.trim()
-                      ? 'border-rose-400 dark:border-rose-500 bg-rose-50/20 ring-4 ring-rose-500/10'
-                      : 'border-slate-200/80 dark:border-slate-800 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10'
+                      ? 'border-rose-400 dark:border-rose-500 ring-2 ring-rose-500/15'
+                      : ''
                   }`}
                   type="text"
                   value={username}
@@ -231,22 +233,19 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label
-                className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 ml-0.5"
-                htmlFor="password-input"
-              >
+              <label className="label" htmlFor="password-input">
                 Senha
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <Lock className="h-4 w-4" />
                 </div>
                 <input
                   id="password-input"
-                  className={`w-full rounded-2xl border bg-slate-50/70 dark:bg-slate-950/60 pl-10 pr-10 py-3 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-all duration-200 focus:bg-white dark:focus:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`input !pl-9 !pr-9 ${
                     error && !password
-                      ? 'border-rose-400 dark:border-rose-500 bg-rose-50/20 ring-4 ring-rose-500/10'
-                      : 'border-slate-200/80 dark:border-slate-800 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10'
+                      ? 'border-rose-400 dark:border-rose-500 ring-2 ring-rose-500/15'
+                      : ''
                   }`}
                   type={showPassword ? 'text' : 'password'}
                   value={password}
@@ -257,7 +256,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer"
                   aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                   disabled={isLockedOut}
                   tabIndex={-1}
@@ -270,7 +269,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || isLockedOut}
-              className="w-full py-3 px-4 mt-2 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-sm font-semibold shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className="btn-primary w-full py-2.5 mt-1 text-xs font-semibold cursor-pointer"
             >
               {loading ? (
                 <>
@@ -279,22 +278,21 @@ export default function LoginPage() {
                 </>
               ) : isLockedOut ? (
                 <>
-                  <Clock className="h-4 w-4 animate-spin" />
+                  <Clock className="h-4 w-4" />
                   <span>Aguarde {remainingSeconds}s...</span>
                 </>
               ) : (
                 <>
                   <span>Entrar no Sistema</span>
-                  <ArrowRight className="h-4 w-4" />
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </>
               )}
             </button>
           </form>
 
-          {/* Minimalist footer */}
-          <div className="mt-8 pt-5 border-t border-slate-100/90 dark:border-slate-800/60 text-center">
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 font-normal">
-              Controle de Estadias • Quirinópolis - GO
+          <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 text-center md:hidden">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              Sistema Interno de Controle de Estadias
             </p>
           </div>
         </div>

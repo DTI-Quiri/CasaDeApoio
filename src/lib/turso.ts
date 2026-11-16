@@ -1,14 +1,15 @@
 import { createClient } from '@libsql/client/web';
 
-const defaultUrl = 'libsql://casadeapoio-garcia3528.aws-ap-south-1.turso.io';
-const defaultToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzIyMzU5MjIsImlkIjoiMDE5Y2ExNDYtOGYwMS03ZGI5LWFkYjAtNDE1Y2NiYzk3MDk2IiwicmlkIjoiYzU1NzhhZWItNjIwNS00MjAwLWFhMWQtYTlmMDY3OGExZWRmIn0.i70iJppnG0q-2477DIe_Y8WbELETa2EPbDt3F0nLG7ULQvxwQvxTnfGHdyWd2TqcLGbgUsj1hfXm8YM5usPLBg';
+const url = (import.meta.env.VITE_TURSO_DATABASE_URL as string)?.trim() || '';
+const authToken = (import.meta.env.VITE_TURSO_AUTH_TOKEN as string)?.trim() || '';
 
-const url = (import.meta.env.VITE_TURSO_DATABASE_URL as string) || defaultUrl;
-const authToken = (import.meta.env.VITE_TURSO_AUTH_TOKEN as string) || defaultToken;
+if (!url) {
+  console.error('VITE_TURSO_DATABASE_URL não configurada no ambiente (.env).');
+}
 
 export const turso = createClient({
-  url,
-  authToken,
+  url: url || 'libsql://localhost:8080',
+  authToken: authToken || undefined,
 });
 
 /**

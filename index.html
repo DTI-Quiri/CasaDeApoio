@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR" class="h-full">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/Brasao-Quirinopolis.png" />
@@ -14,13 +14,16 @@
           } else {
             document.documentElement.classList.remove('dark');
           }
+          if (localStorage.getItem('casaapoio.fontSize') === 'large') {
+            document.documentElement.classList.add('text-lg-mode');
+          }
         } catch (e) {}
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -46,7 +49,7 @@
       }
     </style>
   </head>
-  <body class="h-full antialiased font-sans selection:bg-brand-500/20 selection:text-brand-600">
+  <body class="antialiased font-sans selection:bg-brand-500/20 selection:text-brand-600">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

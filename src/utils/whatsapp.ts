@@ -1,4 +1,4 @@
-import { onlyDigits } from './cpf';
+import { onlyDigits } from './cpf.ts';
 
 export function getWhatsAppUrl(phone?: string): string | null {
   if (!phone) return null;

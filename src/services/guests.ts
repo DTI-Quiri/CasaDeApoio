@@ -16,6 +16,8 @@ function fromRow(row: Record<string, unknown>): Guest {
     companions: parseCompanions(row.companions),
     reason: String(row.reason ?? ''),
     responsible: String(row.responsible ?? ''),
+    appointmentDate: row.appointment_date ? String(row.appointment_date) : undefined,
+    appointmentTime: row.appointment_time ? String(row.appointment_time) : undefined,
     notes: String(row.notes ?? ''),
     socialNotes: String(row.social_notes ?? ''),
     medicalNotes: String(row.medical_notes ?? ''),
@@ -28,7 +30,7 @@ function fromRow(row: Record<string, unknown>): Guest {
     addressStreet: String(row.address_street ?? ''),
     addressNumber: String(row.address_number ?? ''),
     addressComplement: String(row.address_complement ?? ''),
-    status: row.status as Status,
+    status: (row.status as Status) || 'presente',
     checkInAt: row.check_in_at ? String(row.check_in_at) : undefined,
     checkOutAt: row.check_out_at ? String(row.check_out_at) : undefined,
   };
@@ -46,6 +48,8 @@ function toParams(guest: Guest) {
     JSON.stringify(guest.companions ?? []),
     guest.reason || null,
     guest.responsible || null,
+    guest.appointmentDate || null,
+    guest.appointmentTime || null,
     guest.notes || null,
     guest.socialNotes || null,
     guest.medicalNotes || null,
@@ -67,16 +71,18 @@ function toParams(guest: Guest) {
 const UPSERT_GUEST_SQL = `
   INSERT INTO guests (
     id, name, date_of_birth, phone, cpf, sus_card, has_companion, companions, reason, responsible,
-    notes, social_notes, medical_notes, medical_type, medical_status, address_zip,
+    appointment_date, appointment_time, notes, social_notes, medical_notes, medical_type, medical_status, address_zip,
     address_state, address_city, address_neighborhood, address_street, address_number,
     address_complement, status, check_in_at, check_out_at, updated_at
   ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
   )
   ON CONFLICT(id) DO UPDATE SET
     name=excluded.name, date_of_birth=excluded.date_of_birth, phone=excluded.phone, cpf=excluded.cpf,
     sus_card=excluded.sus_card, has_companion=excluded.has_companion, companions=excluded.companions,
-    reason=excluded.reason, responsible=excluded.responsible, notes=excluded.notes, social_notes=excluded.social_notes,
+    reason=excluded.reason, responsible=excluded.responsible,
+    appointment_date=excluded.appointment_date, appointment_time=excluded.appointment_time,
+    notes=excluded.notes, social_notes=excluded.social_notes,
     medical_notes=excluded.medical_notes, medical_type=excluded.medical_type, medical_status=excluded.medical_status,
     address_zip=excluded.address_zip, address_state=excluded.address_state, address_city=excluded.address_city,
     address_neighborhood=excluded.address_neighborhood, address_street=excluded.address_street,
@@ -84,6 +90,39 @@ const UPSERT_GUEST_SQL = `
     status=excluded.status, check_in_at=excluded.check_in_at, check_out_at=excluded.check_out_at,
     updated_at=CURRENT_TIMESTAMP;
 `;
+
+let guestSchemaMigrated = false;
+export async function ensureGuestSchema(): Promise<void> {
+  if (guestSchemaMigrated) return;
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('guest_schema_v2') === '1') {
+      guestSchemaMigrated = true;
+      return;
+    }
+    const { rows } = await turso.execute('PRAGMA table_info(guests)');
+    const existingCols = new Set(rows.map(r => String(r.name)));
+    const requiredCols: [string, string][] = [
+      ['sus_card', 'ALTER TABLE guests ADD COLUMN sus_card TEXT'],
+      ['appointment_date', 'ALTER TABLE guests ADD COLUMN appointment_date TEXT'],
+      ['appointment_time', 'ALTER TABLE guests ADD COLUMN appointment_time TEXT'],
+    ];
+    for (const [colName, sql] of requiredCols) {
+      if (!existingCols.has(colName)) {
+        try {
+          await turso.execute(sql);
+        } catch {
+          // ignore if added concurrently
+        }
+      }
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('guest_schema_v2', '1');
+    }
+  } catch {
+    // fallback if PRAGMA fails
+  }
+  guestSchemaMigrated = true;
+}
 
 function fromAuditRow(row: Record<string, unknown>): AuditEntry {
   return {
@@ -110,11 +149,13 @@ function toAuditParams(a: AuditEntry) {
 }
 
 export async function listGuests(): Promise<Guest[]> {
+  await ensureGuestSchema();
   const { rows } = await turso.execute('SELECT * FROM guests ORDER BY created_at DESC');
   return rows.map(fromRow);
 }
 
 export async function getGuest(id: string): Promise<Guest | undefined> {
+  await ensureGuestSchema();
   const { rows } = await turso.execute({
     sql: 'SELECT * FROM guests WHERE id = ?',
     args: [id],
@@ -124,6 +165,7 @@ export async function getGuest(id: string): Promise<Guest | undefined> {
 }
 
 export async function findGuestByCPF(cpf: string): Promise<Guest | undefined> {
+  await ensureGuestSchema();
   const digits = onlyDigits(cpf);
   const formatted = formatCPF(cpf);
   const candidates = Array.from(new Set([digits, formatted]));
@@ -139,6 +181,7 @@ export async function findGuestByCPF(cpf: string): Promise<Guest | undefined> {
 }
 
 export async function upsertGuest(next: Guest): Promise<void> {
+  await ensureGuestSchema();
   await turso.execute({
     sql: UPSERT_GUEST_SQL,
     args: toParams(next),
@@ -168,8 +211,20 @@ export async function listAudit(guestId: string): Promise<AuditEntry[]> {
   return rows.map(fromAuditRow);
 }
 
-export async function listAllAudit(): Promise<AuditEntry[]> {
-  const { rows } = await turso.execute('SELECT * FROM audit_logs ORDER BY changed_at DESC');
+export async function listAllAudit(limit = 300): Promise<AuditEntry[]> {
+  const { rows } = await turso.execute({
+    sql: 'SELECT * FROM audit_logs ORDER BY changed_at DESC LIMIT ?',
+    args: [limit],
+  });
+  return rows.map(fromAuditRow);
+}
+
+/** Auditoria em um intervalo [startIso, endIso] (timestamps ISO em UTC). */
+export async function listAuditBetween(startIso: string, endIso: string): Promise<AuditEntry[]> {
+  const { rows } = await turso.execute({
+    sql: 'SELECT * FROM audit_logs WHERE changed_at >= ? AND changed_at <= ? ORDER BY changed_at DESC',
+    args: [startIso, endIso],
+  });
   return rows.map(fromAuditRow);
 }
 
@@ -181,10 +236,16 @@ export async function addAudit(entry: AuditEntry): Promise<void> {
 }
 
 export async function changeStatus(g: Guest, to: Status, byUser: string, note?: string): Promise<Guest> {
+  await ensureGuestSchema();
   const now = new Date().toISOString();
   const next: Guest = { ...g, status: to };
+  if (to === 'agendado') {
+    next.checkInAt = undefined;
+    next.checkOutAt = undefined;
+    next.medicalStatus = 'aguardando';
+  }
   if (to === 'presente') {
-    next.checkInAt = g.checkInAt || now;
+    next.checkInAt = now;
     next.checkOutAt = undefined;
     if (!next.medicalStatus) {
       next.medicalStatus = 'aguardando';
@@ -195,6 +256,13 @@ export async function changeStatus(g: Guest, to: Status, byUser: string, note?: 
     next.medicalStatus = 'concluida';
   }
 
+  const defaultNote =
+    to === 'finalizado'
+      ? 'Saída registrada na Casa de Apoio'
+      : to === 'presente'
+        ? 'Entrada confirmada na Casa de Apoio'
+        : 'Encaminhado pela Secretaria de Saúde (Aguardando)';
+
   const auditEntry: AuditEntry = {
     id: crypto.randomUUID(),
     guestId: g.id,
@@ -202,7 +270,7 @@ export async function changeStatus(g: Guest, to: Status, byUser: string, note?: 
     toStatus: to,
     at: now,
     byUser,
-    note: note || (to === 'finalizado' ? 'Check-out / Estadia finalizada (Pendência médica concluída)' : 'Check-in / Estadia iniciada'),
+    note: note || defaultNote,
   };
 
   await turso.batch([
@@ -215,6 +283,147 @@ export async function changeStatus(g: Guest, to: Status, byUser: string, note?: 
 
   broadcastDataChange('GUEST_UPDATED');
   return next;
+}
+
+export async function confirmArrival(g: Guest, byUser: string): Promise<Guest> {
+  return changeStatus(
+    g,
+    'presente',
+    byUser,
+    'Entrada confirmada na Casa de Apoio'
+  );
+}
+
+export async function undoCheckin(g: Guest, byUser: string): Promise<Guest> {
+  await ensureGuestSchema();
+  const now = new Date().toISOString();
+  const next: Guest = {
+    ...g,
+    status: 'agendado',
+    checkInAt: undefined,
+    checkOutAt: undefined,
+    medicalStatus: 'aguardando',
+  };
+
+  const auditEntry: AuditEntry = {
+    id: crypto.randomUUID(),
+    guestId: g.id,
+    fromStatus: g.status,
+    toStatus: 'agendado',
+    at: now,
+    byUser,
+    note: 'Retornado para Aguardando Chegada',
+  };
+
+  await turso.batch([
+    { sql: UPSERT_GUEST_SQL, args: toParams(next) },
+    {
+      sql: 'INSERT INTO audit_logs (id, guest_id, from_status, to_status, changed_at, changed_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      args: toAuditParams(auditEntry),
+    },
+  ]);
+
+  broadcastDataChange('GUEST_UPDATED');
+  return next;
+}
+
+export async function markNoShow(g: Guest, byUser: string): Promise<Guest> {
+  await ensureGuestSchema();
+  const now = new Date().toISOString();
+  const next: Guest = {
+    ...g,
+    status: 'finalizado',
+    checkOutAt: now,
+  };
+
+  const auditEntry: AuditEntry = {
+    id: crypto.randomUUID(),
+    guestId: g.id,
+    fromStatus: g.status,
+    toStatus: 'finalizado',
+    at: now,
+    byUser,
+    note: 'Não compareceu à Casa de Apoio (Ausência registrada)',
+  };
+
+  await turso.batch([
+    { sql: UPSERT_GUEST_SQL, args: toParams(next) },
+    {
+      sql: 'INSERT INTO audit_logs (id, guest_id, from_status, to_status, changed_at, changed_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      args: toAuditParams(auditEntry),
+    },
+  ]);
+
+  broadcastDataChange('GUEST_UPDATED');
+  return next;
+}
+
+export async function batchCheckin(guests: Guest[], byUser: string): Promise<Guest[]> {
+  await ensureGuestSchema();
+  const now = new Date().toISOString();
+  const updatedGuests: Guest[] = guests.map(g => ({
+    ...g,
+    status: 'presente' as Status,
+    checkInAt: now,
+    checkOutAt: undefined,
+    medicalStatus: 'aguardando' as const,
+  }));
+
+  const statements = [];
+  for (const g of updatedGuests) {
+    statements.push({ sql: UPSERT_GUEST_SQL, args: toParams(g) });
+    const auditEntry: AuditEntry = {
+      id: crypto.randomUUID(),
+      guestId: g.id,
+      fromStatus: 'agendado',
+      toStatus: 'presente',
+      at: now,
+      byUser,
+      note: 'Entrada confirmada em lote na Casa de Apoio',
+    };
+    statements.push({
+      sql: 'INSERT INTO audit_logs (id, guest_id, from_status, to_status, changed_at, changed_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      args: toAuditParams(auditEntry),
+    });
+  }
+
+  await turso.batch(statements);
+  broadcastDataChange('GUEST_UPDATED');
+  return updatedGuests;
+}
+
+export async function batchUndoCheckin(guests: Guest[], byUser: string): Promise<Guest[]> {
+  await ensureGuestSchema();
+  const now = new Date().toISOString();
+  const updatedGuests: Guest[] = guests.map(g => ({
+    ...g,
+    status: 'agendado' as Status,
+    checkInAt: undefined,
+    checkOutAt: undefined,
+    medicalStatus: 'aguardando' as const,
+  }));
+
+  const statements = [];
+  for (const g of updatedGuests) {
+    statements.push({ sql: UPSERT_GUEST_SQL, args: toParams(g) });
+    const auditEntry: AuditEntry = {
+      id: crypto.randomUUID(),
+      guestId: g.id,
+      fromStatus: 'presente',
+      toStatus: 'agendado',
+      at: now,
+      byUser,
+      note: 'Entrada em lote desfeita (retornou para Aguardando)',
+    };
+    statements.push({
+      sql: 'INSERT INTO audit_logs (id, guest_id, from_status, to_status, changed_at, changed_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      args: toAuditParams(auditEntry),
+    });
+  }
+
+  await turso.batch(statements);
+  broadcastDataChange('GUEST_UPDATED');
+  return updatedGuests;
 }
 
 export async function undoCheckout(g: Guest, byUser: string): Promise<Guest> {
@@ -249,23 +458,47 @@ export async function undoCheckout(g: Guest, byUser: string): Promise<Guest> {
 }
 
 export async function startNewStay(g: Guest, byUser: string): Promise<Guest> {
+  return startNewStayWithAppointment(g, byUser);
+}
+
+export async function startNewStayWithAppointment(
+  g: Guest,
+  byUser: string,
+  appt?: {
+    appointmentDate?: string;
+    appointmentTime?: string;
+    medicalNotes?: string;
+    reason?: string;
+  }
+): Promise<Guest> {
+  await ensureGuestSchema();
   const now = new Date().toISOString();
   const next: Guest = {
     ...g,
-    status: 'presente',
-    checkInAt: now,
+    status: 'agendado',
+    checkInAt: undefined,
     checkOutAt: undefined,
     medicalStatus: 'aguardando',
+    ...(appt
+      ? {
+          appointmentDate: appt.appointmentDate || undefined,
+          appointmentTime: appt.appointmentTime || undefined,
+          medicalNotes: appt.medicalNotes ?? g.medicalNotes,
+          reason: appt.reason ?? g.reason,
+        }
+      : {}),
   };
 
   const auditEntry: AuditEntry = {
     id: crypto.randomUUID(),
     guestId: g.id,
     fromStatus: g.status,
-    toStatus: 'presente',
+    toStatus: 'agendado',
     at: now,
     byUser,
-    note: 'Nova estadia iniciada (retorno do hóspede)',
+    note: appt?.appointmentDate
+      ? `Novo encaminhamento iniciado para consulta em ${appt.appointmentDate.split('-').reverse().join('/')}`
+      : 'Novo encaminhamento iniciado (Aguardando)',
   };
 
   await turso.batch([
@@ -299,7 +532,7 @@ export async function batchCheckout(guests: Guest[], byUser: string): Promise<Gu
       toStatus: 'finalizado',
       at: now,
       byUser,
-      note: 'Check-out em lote (saída coletiva)',
+      note: 'Saída em lote registrada',
     };
     statements.push({
       sql: 'INSERT INTO audit_logs (id, guest_id, from_status, to_status, changed_at, changed_by, note) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -344,21 +577,82 @@ export async function batchUndoCheckout(guests: Guest[], byUser: string): Promis
   return updatedGuests;
 }
 
-export async function getSettings(): Promise<Settings> {
+let settingsSchemaMigrated = false;
+export async function ensureSettingsSchema(): Promise<void> {
+  if (settingsSchemaMigrated) return;
   try {
-    const { rows } = await turso.execute('SELECT id, alert_days, updated_at FROM settings WHERE id = 1 LIMIT 1');
-    if (rows.length === 0) return { alertDays: 7 };
-    return { alertDays: (rows[0].alert_days as number) ?? 7 };
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('settings_schema_v2') === '1') {
+      settingsSchemaMigrated = true;
+      return;
+    }
+    const { rows } = await turso.execute('PRAGMA table_info(settings)');
+    const existingCols = new Set(rows.map(r => String(r.name)));
+    if (!existingCols.has('max_capacity')) {
+      try {
+        await turso.execute('ALTER TABLE settings ADD COLUMN max_capacity INTEGER');
+      } catch {
+        // ignore if added concurrently
+      }
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('settings_schema_v2', '1');
+    }
   } catch {
-    return { alertDays: 7 };
+    // ignore
   }
+  settingsSchemaMigrated = true;
+}
+
+export async function getSettings(): Promise<Settings> {
+  await ensureSettingsSchema();
+  const { rows } = await turso.execute('SELECT id, alert_days, max_capacity, updated_at FROM settings WHERE id = 1 LIMIT 1');
+  if (rows.length === 0) return { alertDays: 7, maxCapacity: undefined };
+  const rawCap = rows[0].max_capacity;
+  const maxCapacity = typeof rawCap === 'number' && rawCap > 0 ? rawCap : undefined;
+  return {
+    alertDays: (rows[0].alert_days as number) ?? 7,
+    maxCapacity,
+  };
+}
+
+export async function updateSettings(next: Settings): Promise<Settings> {
+  await ensureSettingsSchema();
+  const alertDays = Math.max(1, Math.min(365, Math.round(next.alertDays || 7)));
+  const maxCapacity =
+    typeof next.maxCapacity === 'number' && next.maxCapacity > 0
+      ? Math.min(9999, Math.round(next.maxCapacity))
+      : null;
+
+  await turso.execute({
+    sql: `INSERT INTO settings (id, alert_days, max_capacity, updated_at)
+          VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO UPDATE SET
+            alert_days = excluded.alert_days,
+            max_capacity = excluded.max_capacity,
+            updated_at = CURRENT_TIMESTAMP`,
+    args: [alertDays, maxCapacity],
+  });
+
+  broadcastDataChange('SETTINGS_UPDATED');
+  return { alertDays, maxCapacity: maxCapacity ?? undefined };
 }
 
 let userSchemaMigrated = false;
 export async function ensureUserSchema(): Promise<void> {
   if (userSchemaMigrated) return;
   try {
-    await turso.execute('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0');
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('user_schema_v2') === '1') {
+      userSchemaMigrated = true;
+      return;
+    }
+    const { rows } = await turso.execute('PRAGMA table_info(users)');
+    const existingCols = new Set(rows.map(r => String(r.name)));
+    if (!existingCols.has('must_change_password')) {
+      await turso.execute('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0');
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('user_schema_v2', '1');
+    }
   } catch {
     // column already exists
   }
@@ -591,6 +885,8 @@ export async function recordSuccessfulLogin(ip: string, username: string): Promi
         sql: 'DELETE FROM login_attempts WHERE identifier = ?',
         args: [id],
       });
-    } catch {}
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }

@@ -9,19 +9,76 @@ try {
   syncChannel = null;
 }
 
+export interface SyncStatusState {
+  online: boolean;
+  hasError: boolean;
+  lastSyncedAt: number | null;
+}
+
+let syncState: SyncStatusState = {
+  online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  hasError: false,
+  lastSyncedAt: null,
+};
+
+const syncListeners = new Set<(state: SyncStatusState) => void>();
+
+function emitSyncState() {
+  for (const fn of syncListeners) fn(syncState);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    syncState = { ...syncState, online: true };
+    emitSyncState();
+  });
+  window.addEventListener('offline', () => {
+    syncState = { ...syncState, online: false };
+    emitSyncState();
+  });
+}
+
+export function reportSyncOk() {
+  syncState = { online: true, hasError: false, lastSyncedAt: Date.now() };
+  emitSyncState();
+}
+
+export function reportSyncError() {
+  syncState = {
+    online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    hasError: true,
+    lastSyncedAt: syncState.lastSyncedAt,
+  };
+  emitSyncState();
+}
+
+export function getSyncStatus(): SyncStatusState {
+  return syncState;
+}
+
+export function subscribeSyncStatus(listener: (state: SyncStatusState) => void): () => void {
+  syncListeners.add(listener);
+  listener(syncState);
+  return () => {
+    syncListeners.delete(listener);
+  };
+}
+
 /**
- * Notifies all open tabs and windows instantly of any data changes
+ * Notifica outras abas/janelas abertas instantaneamente sobre alterações nos dados.
  */
 export function broadcastDataChange(type: SyncEventType = 'GUEST_UPDATED') {
   if (syncChannel) {
     try {
       syncChannel.postMessage({ type, at: Date.now() });
-    } catch {}
+    } catch {
+      // ignore broadcast errors
+    }
   }
 }
 
 /**
- * Subscribes a component to real-time data change notifications
+ * Inscreve um componente para recarregar ao receber alterações de outras abas.
  */
 export function subscribeToDataChanges(callback: () => void): () => void {
   if (!syncChannel) return () => {};

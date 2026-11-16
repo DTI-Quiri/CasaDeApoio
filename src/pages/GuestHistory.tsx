@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getGuest, listAudit } from '../services/guests';
-import type { AuditEntry, Guest, Companion } from '../types';
+import type { AuditEntry, Guest } from '../types';
 import { formatCompanionsList } from '../utils/companion';
 import { subscribeToDataChanges } from '../utils/sync';
 import {
@@ -13,6 +13,7 @@ import {
   User,
   Clock,
   CheckCircle2,
+  XCircle,
   Search,
   Building2,
   MapPin,
@@ -26,212 +27,45 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { calculateAge } from '../utils/cpf';
+import { classifyAuditEvent } from '../utils/labels';
+import { cleanAuditNote, organizeStays } from '../utils/history';
+import { normalizeText } from '../utils/search';
 import { StatusBadge } from '../components/StatusBadge';
 
-type StayGroup = {
-  id: string;
-  status: 'em_andamento' | 'finalizada' | 'avulso';
-  start?: string;
-  end?: string;
-  durationText?: string;
-  procedure?: string;
-  hospital?: string;
-  medicalStatus?: string;
-  companions?: Companion[];
-  events: AuditEntry[];
-};
-
-function cleanAuditNote(note?: string): string {
-  if (!note) return '';
-  return note
-    .replace(/"true"/gi, '"Sim"')
-    .replace(/"false"/gi, '"Não"');
-}
-
-function formatDuration(startDate?: string, endDate?: string): string {
-  if (!startDate) return '';
-  const start = new Date(startDate).getTime();
-  const end = endDate ? new Date(endDate).getTime() : Date.now();
-  const diffMs = Math.max(0, end - start);
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays === 0) {
-    if (diffHours === 0) return 'Menos de 1 hora';
-    return `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-  }
-  const remainingHours = diffHours % 24;
-  if (remainingHours === 0) {
-    return `${diffDays} dia${diffDays > 1 ? 's' : ''}`;
-  }
-  return `${diffDays} dia${diffDays > 1 ? 's' : ''} e ${remainingHours}h`;
-}
-
-function organizeStays(guest: Guest | undefined, entries: AuditEntry[]): StayGroup[] {
-  if (!guest) return [];
-
-  // Sort entries chronologically ascending
-  const sorted = [...entries].sort(
-    (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()
-  );
-
-  const stays: StayGroup[] = [];
-  let currentStay: StayGroup | null = null;
-  let stayIndex = 1;
-
-  for (const entry of sorted) {
-    const note = (entry.note || '').toLowerCase();
-
-    // Explicit Check-in:
-    // 1. Has note indicating check-in / new stay / initial registration
-    // 2. OR status transitioned from non-presente to presente (fromStatus exists and !== 'presente')
-    const isExplicitCheckIn =
-      note.includes('nova estadia') ||
-      note.includes('1ª estadia') ||
-      note.includes('cadastro realizado') ||
-      note.includes('check-in') ||
-      (entry.fromStatus && entry.fromStatus !== 'presente' && entry.toStatus === 'presente');
-
-    // Explicit Check-out:
-    // Status transitioned to finalizado without being a simple field edit
-    const isExplicitCheckOut =
-      note.includes('check-out') ||
-      note.includes('estadia finalizada') ||
-      (entry.toStatus === 'finalizado' && !note.startsWith('alterou'));
-
-    if (isExplicitCheckIn) {
-      if (currentStay && !currentStay.end) {
-        // If there was an open stay, finalize it before starting the next
-        currentStay.end = entry.at;
-        currentStay.status = 'finalizada';
-        currentStay.durationText = formatDuration(currentStay.start, currentStay.end);
-        stays.push(currentStay);
-      }
-      currentStay = {
-        id: `stay-${stayIndex++}`,
-        status: 'em_andamento',
-        start: entry.at,
-        end: undefined,
-        procedure: guest.reason,
-        hospital: guest.medicalNotes,
-        medicalStatus: guest.medicalStatus,
-        companions: guest.companions,
-        events: [entry],
-      };
-      continue;
-    }
-
-    if (isExplicitCheckOut) {
-      if (!currentStay) {
-        currentStay = {
-          id: `stay-${stayIndex++}`,
-          status: 'finalizada',
-          start: guest.checkInAt || entry.at,
-          end: entry.at,
-          procedure: guest.reason,
-          hospital: guest.medicalNotes,
-          medicalStatus: guest.medicalStatus,
-          companions: guest.companions,
-          events: [entry],
-        };
-        currentStay.durationText = formatDuration(currentStay.start, currentStay.end);
-        stays.push(currentStay);
-        currentStay = null;
-      } else {
-        currentStay.end = entry.at;
-        currentStay.status = 'finalizada';
-        currentStay.durationText = formatDuration(currentStay.start, currentStay.end);
-        currentStay.events.push(entry);
-        stays.push(currentStay);
-        currentStay = null;
-      }
-      continue;
-    }
-
-    // It's a field edit, note, or update during the stay!
-    if (currentStay) {
-      currentStay.events.push(entry);
-    } else {
-      // If we don't have an open stay yet, create the stay for this guest
-      currentStay = {
-        id: `stay-${stayIndex++}`,
-        status: guest.status === 'presente' ? 'em_andamento' : 'finalizada',
-        start: guest.checkInAt || entry.at,
-        end: guest.checkOutAt,
-        procedure: guest.reason,
-        hospital: guest.medicalNotes,
-        medicalStatus: guest.medicalStatus,
-        companions: guest.companions,
-        events: [entry],
-      };
-    }
-  }
-
-  if (currentStay) {
-    if (guest.status === 'finalizado' && !currentStay.end && guest.checkOutAt) {
-      currentStay.end = guest.checkOutAt;
-      currentStay.status = 'finalizada';
-    }
-    currentStay.durationText = formatDuration(currentStay.start, currentStay.end);
-    stays.push(currentStay);
-  }
-
-  // Fallback: If no audit entries exist but guest has checkInAt recorded
-  if (stays.length === 0 && guest.checkInAt) {
-    stays.push({
-      id: 'stay-current',
-      status: guest.status === 'presente' ? 'em_andamento' : 'finalizada',
-      start: guest.checkInAt,
-      end: guest.checkOutAt,
-      durationText: formatDuration(guest.checkInAt, guest.checkOutAt),
-      procedure: guest.reason,
-      hospital: guest.medicalNotes,
-      medicalStatus: guest.medicalStatus,
-      companions: guest.companions,
-      events: [
-        {
-          id: 'initial-checkin',
-          guestId: guest.id,
-          toStatus: guest.status,
-          at: guest.checkInAt,
-          byUser: 'Sistema',
-          note: guest.status === 'presente' ? 'Estadia ativa na Casa de Apoio' : 'Estadia finalizada',
-        },
-      ],
-    });
-  }
-
-  // Return sorted descending (most recent first)
-  return stays.reverse();
-}
-
 function getEventStyle(entry: AuditEntry) {
-  const note = (entry.note || '').toLowerCase();
-  if (entry.toStatus === 'presente' || note.includes('iniciada') || note.includes('check-in')) {
+  const ev = classifyAuditEvent(entry);
+  if (ev.kind === 'edit') {
+    return {
+      icon: <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />,
+      badgeBg: 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60',
+      tag: 'Atualização Cadastral',
+    };
+  }
+  if (ev.kind === 'referral') {
+    return {
+      icon: <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />,
+      badgeBg: 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60',
+      tag: 'Encaminhamento / Aguardando',
+    };
+  }
+  if (ev.kind === 'checkin') {
     return {
       icon: <LogIn className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />,
       badgeBg: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60',
-      tag: 'Check-in / Entrada',
+      tag: 'Entrada na Casa',
     };
   }
-  if (entry.toStatus === 'finalizado' || note.includes('finalizada') || note.includes('check-out')) {
+  if (ev.kind === 'checkout' || ev.kind === 'noshow') {
     return {
       icon: <LogOut className="h-4 w-4 text-amber-600 dark:text-amber-400" />,
       badgeBg: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
-      tag: 'Check-out / Saída',
-    };
-  }
-  if (note.includes('alterou')) {
-    return {
-      icon: <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />,
-      badgeBg: 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60',
-      tag: 'Atualização Cadastral',
+      tag: ev.kind === 'noshow' ? 'Não veio / Saída' : 'Saída',
     };
   }
   return {
     icon: <History className="h-4 w-4 text-slate-500 dark:text-slate-400" />,
     badgeBg: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700',
-    tag: 'Registro de Atividade',
+    tag: ev.label,
   };
 }
 
@@ -240,14 +74,14 @@ export default function GuestHistoryPage() {
   const [guest, setGuest] = useState<Guest | undefined>();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'todas' | 'presente' | 'finalizada'>('todas');
+  const [activeTab, setActiveTab] = useState<'todas' | 'presente' | 'agendado' | 'finalizada'>('todas');
   const [searchTerm, setSearchTerm] = useState('');
   const [openStays, setOpenStays] = useState<Record<string, boolean>>({});
 
-  const toggleStay = (stayId: string) => {
+  const toggleStay = (stayId: string, currentlyOpen: boolean) => {
     setOpenStays(prev => ({
       ...prev,
-      [stayId]: !prev[stayId],
+      [stayId]: !currentlyOpen,
     }));
   };
 
@@ -289,43 +123,45 @@ export default function GuestHistoryPage() {
   const allStays = useMemo(() => organizeStays(guest, entries), [guest, entries]);
 
   const filteredStays = useMemo(() => {
+    const q = normalizeText(searchTerm);
     return allStays.filter(stay => {
-      // Tab filter
       if (activeTab === 'presente' && stay.status !== 'em_andamento') return false;
+      if (activeTab === 'agendado' && stay.status !== 'agendada') return false;
       if (activeTab === 'finalizada' && stay.status !== 'finalizada') return false;
 
-      // Text search filter
-      if (!searchTerm.trim()) return true;
-      const q = searchTerm.toLowerCase();
-      const matchHospital = (stay.hospital || '').toLowerCase().includes(q);
-      const matchProcedure = (stay.procedure || '').toLowerCase().includes(q);
-      const matchEvents = stay.events.some(
-        e =>
-          (e.note || '').toLowerCase().includes(q) ||
-          (e.byUser || '').toLowerCase().includes(q)
+      if (!q) return true;
+      const haystack = normalizeText(
+        [
+          stay.hospital,
+          stay.procedure,
+          stay.appointmentText,
+          formatCompanionsList(stay.companions),
+          ...stay.events.flatMap(e => [e.note, e.byUser, classifyAuditEvent(e).label]),
+        ]
+          .filter(Boolean)
+          .join(' ')
       );
-      return matchHospital || matchProcedure || matchEvents;
+      return haystack.includes(q);
     });
   }, [allStays, activeTab, searchTerm]);
 
   return (
-    <div className="container-page py-8 space-y-6 animate-in fade-in duration-300">
+    <div className="container-page py-6 space-y-5">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:min-h-[44px]">
+        <div className="flex items-center gap-2.5">
           <Link
-            to="/historico"
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
-            title="Voltar à Lista de Histórico"
+            to={guest ? `/hospedes/${guest.id}` : "/hospedes"}
+            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
+            title="Voltar à Ficha do Hóspede"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <History className="h-6 w-6 text-brand-600 dark:text-brand-400" />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
               Histórico de {guest?.name || 'Hóspede'}
             </h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Linha do tempo completa com todas as estadias, procedimentos e alterações
             </p>
           </div>
@@ -335,9 +171,9 @@ export default function GuestHistoryPage() {
           {guest && (
             <Link
               to={`/hospedes/${guest.id}`}
-              className="btn-primary text-xs sm:text-sm font-semibold shadow-sm flex items-center gap-2"
+              className="btn-primary"
             >
-              <User className="h-4 w-4" />
+              <User className="h-3.5 w-3.5" />
               <span>Ver Ficha Cadastral</span>
             </Link>
           )}
@@ -346,67 +182,63 @@ export default function GuestHistoryPage() {
 
       {/* Guest Summary Card */}
       {guest && (
-        <div className="card p-6 shadow-sm border border-slate-200/80 dark:border-slate-800/80">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-400 text-white flex items-center justify-center text-2xl font-extrabold shadow-md shrink-0">
-                {guest.name.charAt(0).toUpperCase()}
+        <div className="card p-5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">
+                  {guest.name}
+                </h2>
+                <StatusBadge status={guest.status} />
               </div>
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                    {guest.name}
-                  </h2>
-                  <StatusBadge status={guest.status} />
-                </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                  <span className="flex items-center gap-1">
-                    <strong>CPF:</strong> {guest.cpf || '-'}
-                  </span>
-                  {guest.susCard && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <CreditCard className="h-3.5 w-3.5 text-blue-500" />
-                        <strong>CNS/SUS:</strong> {guest.susCard}
-                      </span>
-                    </>
-                  )}
-                  {guest.phone && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3.5 w-3.5 text-emerald-500" />
-                        <strong>Contato:</strong> {guest.phone}
-                      </span>
-                    </>
-                  )}
-                  {guest.addressCity && (
-                    <>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3.5 w-3.5 text-rose-500" />
-                        {guest.addressCity} - {guest.addressState || 'GO'}
-                      </span>
-                    </>
-                  )}
-                  <span>•</span>
-                  <span>
-                    <strong>Idade:</strong> {guest.dateOfBirth ? `${calculateAge(guest.dateOfBirth)} anos` : '-'}
-                  </span>
-                </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                <span>
+                  <strong className="text-slate-700 dark:text-slate-300 font-medium">CPF:</strong> {guest.cpf || '-'}
+                </span>
+                {guest.susCard && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <CreditCard className="h-3.5 w-3.5 text-slate-400" />
+                      <strong className="text-slate-700 dark:text-slate-300 font-medium">CNS/SUS:</strong> {guest.susCard}
+                    </span>
+                  </>
+                )}
+                {guest.phone && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Phone className="h-3.5 w-3.5 text-slate-400" />
+                      <strong className="text-slate-700 dark:text-slate-300 font-medium">Contato:</strong> {guest.phone}
+                    </span>
+                  </>
+                )}
+                {guest.addressCity && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                      {guest.addressCity} - {guest.addressState || 'GO'}
+                    </span>
+                  </>
+                )}
+                <span>•</span>
+                <span>
+                  <strong className="text-slate-700 dark:text-slate-300 font-medium">Idade:</strong>{' '}
+                  {guest.dateOfBirth ? `${calculateAge(guest.dateOfBirth)} anos` : '-'}
+                </span>
               </div>
             </div>
 
             {/* Quick Metrics */}
-            <div className="flex items-center gap-3 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
-              <div className="px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/50 text-center min-w-[100px]">
-                <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Estadias</span>
-                <span className="text-lg font-bold text-brand-600 dark:text-brand-400">{allStays.length}</span>
+            <div className="flex items-center gap-2.5 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
+              <div className="px-3.5 py-2 rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 text-center min-w-[90px]">
+                <span className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Estadias</span>
+                <span className="text-base font-semibold text-slate-900 dark:text-white tabular-nums">{allStays.length}</span>
               </div>
-              <div className="px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/50 text-center min-w-[100px]">
-                <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Registros</span>
-                <span className="text-lg font-bold text-slate-800 dark:text-slate-200">{entries.length}</span>
+              <div className="px-3.5 py-2 rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 text-center min-w-[90px]">
+                <span className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Registros</span>
+                <span className="text-base font-semibold text-slate-900 dark:text-white tabular-nums">{entries.length}</span>
               </div>
             </div>
           </div>
@@ -414,27 +246,27 @@ export default function GuestHistoryPage() {
       )}
 
       {/* Filter and Search Bar */}
-      <div className="card p-4 sm:p-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="card p-3.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60 rounded-md">
             <button
               type="button"
               onClick={() => setActiveTab('todas')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 activeTab === 'todas'
-                  ? 'bg-white dark:bg-slate-900 text-brand-600 dark:text-brand-400 shadow-sm'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              Todas as Estadias ({allStays.length})
+              Todas ({allStays.length})
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('presente')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 activeTab === 'presente'
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -442,10 +274,21 @@ export default function GuestHistoryPage() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab('agendado')}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                activeTab === 'agendado'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Aguardando ({allStays.filter(s => s.status === 'agendada').length})
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab('finalizada')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                 activeTab === 'finalizada'
-                  ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 shadow-sm'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -455,18 +298,18 @@ export default function GuestHistoryPage() {
 
           {/* Search */}
           <div className="relative w-full md:w-72">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
             <input
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Buscar hospital, motivo ou operador..."
-              className="input !pl-10 !pr-9 text-xs py-2"
+              className="input !pl-9 !pr-9"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 title="Limpar busca"
               >
                 <X className="h-3.5 w-3.5" />
@@ -478,14 +321,14 @@ export default function GuestHistoryPage() {
 
       {/* Main Content Area */}
       {loading ? (
-        <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
-          <p className="text-sm font-medium">Carregando histórico do hóspede...</p>
+        <div className="py-16 flex flex-col items-center justify-center gap-2 text-slate-500">
+          <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+          <p className="text-xs font-medium">Carregando histórico do hóspede...</p>
         </div>
       ) : filteredStays.length === 0 ? (
-        <div className="card p-12 text-center text-slate-500 space-y-3">
-          <Calendar className="h-12 w-12 text-slate-300 dark:text-slate-600 mx-auto" />
-          <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200">
+        <div className="card p-10 text-center text-slate-500 space-y-2">
+          <Calendar className="h-8 w-8 text-slate-300 dark:text-slate-600 mx-auto" />
+          <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
             Nenhuma estadia encontrada
           </h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
@@ -495,75 +338,101 @@ export default function GuestHistoryPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           {filteredStays.map((stay, idx) => {
             const stayNumber = allStays.length - idx;
             const isOngoing = stay.status === 'em_andamento';
-            const isOpen = !!openStays[stay.id];
+            const isScheduled = stay.status === 'agendada';
+            const isOpen = openStays[stay.id] ?? idx === 0;
 
             return (
               <div
                 key={stay.id}
-                className="card overflow-hidden shadow-card border border-slate-200/80 dark:border-slate-800/80 transition-all hover:shadow-md"
+                className="card overflow-hidden"
               >
                 {/* Stay Header Bar (Clickable) */}
                 <div
-                  onClick={() => toggleStay(stay.id)}
-                  className={`px-6 py-4 bg-slate-50/90 dark:bg-slate-900/90 flex items-center justify-between gap-4 cursor-pointer select-none transition-colors hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${
-                    isOpen ? 'border-b border-slate-200/80 dark:border-slate-800/80' : ''
+                  onClick={() => toggleStay(stay.id, isOpen)}
+                  className={`px-5 py-3.5 bg-slate-50/70 dark:bg-slate-900 flex items-center justify-between gap-4 cursor-pointer select-none transition-colors hover:bg-slate-100/70 dark:hover:bg-slate-800/50 ${
+                    isOpen ? 'border-b border-slate-200/80 dark:border-slate-800' : ''
                   }`}
                   role="button"
                   tabIndex={0}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      toggleStay(stay.id);
+                      toggleStay(stay.id, isOpen);
                     }
                   }}
                   aria-expanded={isOpen}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className={`h-9 w-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                      className={`h-8 w-8 rounded-md flex items-center justify-center font-semibold text-xs shrink-0 tabular-nums ${
                         isOngoing
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 ring-2 ring-emerald-500/20'
-                          : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                          : isScheduled
+                            ? 'bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                       }`}
                     >
                       #{stayNumber}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-base text-slate-900 dark:text-white">
+                        <span className="font-semibold text-sm text-slate-900 dark:text-white">
                           Estadia #{stayNumber}
                         </span>
                         {isOngoing ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="badge-green">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
                             Em Andamento
                           </span>
+                        ) : isScheduled ? (
+                          <span className="badge-blue">
+                            <Clock className="h-3 w-3" />
+                            Aguardando Chegada
+                          </span>
+                        ) : stay.noShow ? (
+                          <span className="badge-red">
+                            <XCircle className="h-3 w-3" />
+                            Não veio
+                          </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/50">
+                          <span className="badge-gray">
                             <CheckCircle2 className="h-3 w-3 text-slate-400" />
                             Concluída
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <div className="flex flex-wrap items-center gap-x-3 text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                        {stay.appointmentText && stay.appointmentText !== '-' && (
+                          <>
+                            <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
+                              <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                              Consulta: {stay.appointmentText}
+                            </span>
+                            <span>•</span>
+                          </>
+                        )}
                         <span className="flex items-center gap-1">
-                          <LogIn className="h-3.5 w-3.5 text-emerald-600" />
-                          <strong>Entrada:</strong>{' '}
+                          <LogIn className="h-3.5 w-3.5 text-slate-400" />
+                          Entrada:{' '}
                           {stay.start
                             ? new Date(stay.start).toLocaleString('pt-BR', {
                                 dateStyle: 'short',
                                 timeStyle: 'short',
                               })
-                            : 'Sem data'}
+                            : stay.noShow
+                              ? 'Não compareceu'
+                              : isScheduled
+                                ? 'Aguardando'
+                                : 'Não registrada'}
                         </span>
                         <span>•</span>
                         <span className="flex items-center gap-1">
-                          <LogOut className="h-3.5 w-3.5 text-amber-600" />
-                          <strong>Saída:</strong>{' '}
+                          <LogOut className="h-3.5 w-3.5 text-slate-400" />
+                          Saída:{' '}
                           {stay.end
                             ? new Date(stay.end).toLocaleString('pt-BR', {
                                 dateStyle: 'short',
@@ -575,7 +444,7 @@ export default function GuestHistoryPage() {
                           <>
                             <span>•</span>
                             <span className="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300">
-                              <Clock className="h-3.5 w-3.5 text-blue-500" />
+                              <Clock className="h-3.5 w-3.5 text-slate-400" />
                               {stay.durationText}
                             </span>
                           </>
@@ -585,10 +454,10 @@ export default function GuestHistoryPage() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="p-2 rounded-xl text-slate-400 dark:text-slate-500 bg-white/80 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs">
+                    <div className="p-1.5 rounded-md text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
                       <ChevronDown
-                        className={`h-4 w-4 transition-transform duration-200 ${
-                          isOpen ? 'rotate-180 text-brand-600 dark:text-brand-400' : ''
+                        className={`h-4 w-4 transition-transform duration-150 ${
+                          isOpen ? 'rotate-180 text-slate-700 dark:text-slate-200' : ''
                         }`}
                       />
                     </div>
@@ -597,78 +466,89 @@ export default function GuestHistoryPage() {
 
                 {/* Collapsible Content */}
                 {isOpen && (
-                  <div className="animate-in fade-in duration-200 divide-y divide-slate-100 dark:divide-slate-800/80">
-                    {/* Stay Context Details (Hospital / Motivo / Acompanhantes) */}
-                    <div className="px-6 py-4 bg-slate-50/40 dark:bg-slate-900/40 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {/* Stay Context Details (Consulta / Hospital / Motivo / Acompanhantes) */}
+                    <div className="px-5 py-3.5 bg-slate-50/40 dark:bg-slate-900/40 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                       <div>
-                        <span className="block font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          <Stethoscope className="h-3.5 w-3.5 text-indigo-500" />
+                        <span className="block font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                          <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                          Dia e Hora da Consulta
+                        </span>
+                        <p className="text-xs font-medium text-slate-900 dark:text-slate-100 tabular-nums">
+                          {stay.appointmentText && stay.appointmentText !== '-'
+                            ? stay.appointmentText
+                            : 'Não informado'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="block font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                          <Stethoscope className="h-3.5 w-3.5 text-slate-400" />
                           Procedimento / Motivo
                         </span>
-                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        <p className="text-xs font-medium text-slate-900 dark:text-slate-100">
                           {stay.procedure || 'Não informado'}
                         </p>
                       </div>
                       <div>
-                        <span className="block font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          <Building2 className="h-3.5 w-3.5 text-blue-500" />
+                        <span className="block font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                          <Building2 className="h-3.5 w-3.5 text-slate-400" />
                           Hospital / Local de Atendimento
                         </span>
-                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        <p className="text-xs font-medium text-slate-900 dark:text-slate-100">
                           {stay.hospital || 'Não informado'}
                         </p>
                       </div>
                       <div>
-                        <span className="block font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5 text-amber-500" />
+                        <span className="block font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                          <Users className="h-3.5 w-3.5 text-slate-400" />
                           Acompanhante(s)
                         </span>
-                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        <p className="text-xs font-medium text-slate-900 dark:text-slate-100">
                           {formatCompanionsList(stay.companions) || 'Nenhum'}
                         </p>
                       </div>
                     </div>
 
                     {/* Event Audit Log for this Stay */}
-                    <div className="p-6">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-1.5">
-                        <History className="h-3.5 w-3.5 text-slate-500" />
+                    <div className="p-5">
+                      <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-1.5">
+                        <History className="h-3.5 w-3.5 text-slate-400" />
                         Eventos e Ações Registradas ({stay.events.length})
                       </h4>
 
-                      <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+                      <div className="relative pl-5 space-y-3 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-px before:bg-slate-200 dark:before:bg-slate-800">
                         {stay.events.map(event => {
                           const style = getEventStyle(event);
 
                           return (
                             <div key={event.id} className="relative group">
                               {/* Timeline dot */}
-                              <div className="absolute -left-6 top-1.5 h-4 w-4 rounded-full bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-600 flex items-center justify-center shadow-sm group-hover:border-brand-500 transition-colors">
-                                <span className="h-1.5 w-1.5 rounded-full bg-brand-600 dark:bg-brand-400" />
+                              <div className="absolute -left-5 top-1.5 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 flex items-center justify-center">
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-500 dark:bg-slate-400" />
                               </div>
 
-                              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="p-3 rounded-md bg-white dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-2">
                                     <span
-                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${style.badgeBg}`}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${style.badgeBg}`}
                                     >
                                       {style.icon}
                                       {style.tag}
                                     </span>
-                                    <span className="text-xs text-slate-400 font-medium">
-                                      por <strong>{event.byUser || 'Sistema'}</strong>
+                                    <span className="text-xs text-slate-400">
+                                      por <strong className="font-medium text-slate-600 dark:text-slate-300">{event.byUser || 'Sistema'}</strong>
                                     </span>
                                   </div>
-                                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200">
                                     {cleanAuditNote(event.note) ||
                                       (event.fromStatus
-                                        ? `Status atualizado: ${event.fromStatus === 'presente' ? 'Presente' : 'Finalizado'} → ${event.toStatus === 'presente' ? 'Presente' : 'Finalizado'}`
-                                        : `Status: ${event.toStatus === 'presente' ? 'Presente' : 'Finalizado'}`)}
+                                        ? `Situação atualizada: ${event.fromStatus === 'presente' ? 'Na casa' : event.fromStatus === 'agendado' ? 'Aguardando' : 'Finalizado'} → ${event.toStatus === 'presente' ? 'Na casa' : event.toStatus === 'agendado' ? 'Aguardando' : 'Finalizado'}`
+                                        : `Situação: ${event.toStatus === 'presente' ? 'Na casa' : event.toStatus === 'agendado' ? 'Aguardando' : 'Finalizado'}`)}
                                   </p>
                                 </div>
 
-                                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0 bg-slate-50 dark:bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                                <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">
                                   {new Date(event.at).toLocaleString('pt-BR', {
                                     dateStyle: 'short',
                                     timeStyle: 'short',

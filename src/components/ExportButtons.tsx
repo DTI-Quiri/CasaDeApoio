@@ -1,17 +1,30 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+/* eslint-disable react-refresh/only-export-components */
 import type { Guest } from '../types';
 import { parseCompanions, formatCompanionsList } from '../utils/companion';
+import { formatAppointmentDisplay } from '../utils/cpf';
+import { STATUS_LABEL } from '../utils/labels';
 import { FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 
+function sanitizeCsvCell(val: string): string {
+  const str = (val || '').replace(/"/g, '""');
+  if (/^[=+\-@]/.test(str)) {
+    return `"'${str}"`;
+  }
+  return `"${str}"`;
+}
+
 function toCSV(rows: string[][]) {
-  return rows.map(r => r.map(v => `"${(v || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  return rows.map(r => r.map(sanitizeCsvCell).join(',')).join('\n');
 }
 
 function formatDate(iso?: string) {
   if (!iso) return '-';
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function formatStatusLabel(status: Guest['status']) {
+  return STATUS_LABEL[status];
 }
 
 function getTimestamp() {
@@ -30,11 +43,11 @@ export function exportGuestsToCSV(guests: Guest[]) {
       'Nome',
       'CPF',
       'Celular',
-      'Status',
-      'Check-in',
-      'Check-out',
+      'Situação',
+      'Consulta (Dia/Hora)',
+      'Entrada',
+      'Saída',
       'Tipo Atendimento',
-      'Status Atendimento',
       'Hospital/Clínica',
       'Qtde Acompanhantes',
       'Acompanhantes',
@@ -49,11 +62,11 @@ export function exportGuestsToCSV(guests: Guest[]) {
         b.name,
         b.cpf,
         b.phone,
-        b.status,
+        formatStatusLabel(b.status),
+        formatAppointmentDisplay(b.appointmentDate, b.appointmentTime),
         formatDate(b.checkInAt),
         formatDate(b.checkOutAt),
         b.medicalType ?? '-',
-        b.medicalStatus ?? '-',
         b.medicalNotes ?? '-',
         String(companionCount),
         companionsStr,
@@ -75,8 +88,12 @@ export function exportGuestsToCSV(guests: Guest[]) {
   }
 }
 
-export function exportGuestsToPDF(guests: Guest[]) {
+export async function exportGuestsToPDF(guests: Guest[]) {
   try {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
     const doc = new jsPDF({ orientation: 'landscape' });
     const now = new Date().toLocaleString('pt-BR');
     doc.setFontSize(18);
@@ -91,9 +108,10 @@ export function exportGuestsToPDF(guests: Guest[]) {
         'Nome',
         'CPF',
         'Celular',
-        'Status',
-        'Check-in',
-        'Check-out',
+        'Situação',
+        'Consulta',
+        'Entrada',
+        'Saída',
         'Hospital / Clínica',
         'Procedimento',
         'Acomp.',
@@ -106,11 +124,12 @@ export function exportGuestsToPDF(guests: Guest[]) {
         d.name,
         d.cpf,
         d.phone,
-        d.status.toUpperCase(),
+        formatStatusLabel(d.status),
+        formatAppointmentDisplay(d.appointmentDate, d.appointmentTime),
         formatDate(d.checkInAt),
         formatDate(d.checkOutAt),
         d.medicalNotes ?? '-',
-        `${d.medicalType ?? '-'} (${d.medicalStatus ?? '-'})`,
+        d.reason || d.medicalType || '-',
         String(count),
       ];
     });
@@ -134,20 +153,22 @@ export default function ExportButtons({ guests }: { guests: Guest[] }) {
   return (
     <div className="flex items-center gap-2">
       <button
-        className="btn-secondary py-2 px-3 text-xs sm:text-sm font-medium"
+        type="button"
+        className="btn-secondary cursor-pointer"
         onClick={() => exportGuestsToCSV(guests)}
         title="Exportar dados filtrados para planilha CSV"
       >
-        <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-        <span className="hidden sm:inline">Exportar CSV</span>
+        <FileSpreadsheet className="h-3.5 w-3.5 text-slate-500" />
+        <span>Exportar CSV</span>
       </button>
       <button
-        className="btn-secondary py-2 px-3 text-xs sm:text-sm font-medium"
+        type="button"
+        className="btn-secondary cursor-pointer"
         onClick={() => exportGuestsToPDF(guests)}
         title="Exportar dados filtrados para documento PDF"
       >
-        <FileText className="h-4 w-4 text-brand-600 dark:text-brand-400" />
-        <span className="hidden sm:inline">Exportar PDF</span>
+        <FileText className="h-3.5 w-3.5 text-slate-500" />
+        <span>Exportar PDF</span>
       </button>
     </div>
   );

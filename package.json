@@ -7,17 +7,16 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --experimental-strip-types --test src/utils/domain.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
-    "@supabase/supabase-js": "^2.80.0",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "lucide-react": "^1.33.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-input-mask": "^2.0.4",
     "react-router-dom": "^7.9.5",
     "sonner": "^2.0.8"
   },

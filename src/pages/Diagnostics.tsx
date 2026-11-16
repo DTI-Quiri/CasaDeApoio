@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { turso } from '../lib/turso';
+import { turso, hashPassword, compareHash } from '../lib/turso';
 import {
   createUser,
   deleteUser,
   listUsers,
-  verifyUser,
   upsertGuest,
   listGuests,
   getGuest,
@@ -13,7 +12,7 @@ import {
   addAudit,
   listAudit,
 } from '../services/guests';
-import { Activity, Play, CheckCircle2, XCircle, Loader2, Server } from 'lucide-react';
+import { Play, CheckCircle2, XCircle, Loader2, Server, Database } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface DiagnosticResult {
@@ -32,7 +31,7 @@ export default function DiagnosticsPage() {
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<DiagnosticResult[]>([]);
 
-  async function runDiagnostics() {
+  async function runDiagnostics(includeWriteTests = false) {
     setRunning(true);
     setResults([]);
 
@@ -42,18 +41,23 @@ export default function DiagnosticsPage() {
 
     try {
       // 1. Env Turso
-      const hasUrl = Boolean(import.meta.env.VITE_TURSO_DATABASE_URL || 'libsql://casadeapoio-garcia3528.aws-ap-south-1.turso.io');
-      const hasToken = Boolean(import.meta.env.VITE_TURSO_AUTH_TOKEN || 'true');
+      const hasUrl = Boolean((import.meta.env.VITE_TURSO_DATABASE_URL as string)?.trim());
+      const hasToken = Boolean((import.meta.env.VITE_TURSO_AUTH_TOKEN as string)?.trim());
       if (hasUrl && hasToken) {
-        addResult({ name: 'Variáveis de Ambiente (Turso LibSQL)', status: 'ok', detail: 'Credenciais válidas e conectadas.' });
+        addResult({ name: 'Variáveis de Ambiente (Turso LibSQL)', status: 'ok', detail: 'Credenciais configuradas no ambiente.' });
       } else {
-        addResult({ name: 'Variáveis de Ambiente (Turso LibSQL)', status: 'error', detail: 'Credenciais ausentes.' });
+        addResult({ name: 'Variáveis de Ambiente (Turso LibSQL)', status: 'error', detail: 'Variáveis VITE_TURSO_* ausentes no .env.' });
       }
 
       // 2. Table users
       try {
-        await turso.execute('SELECT id FROM users LIMIT 1');
-        addResult({ name: 'Tabela: users', status: 'ok', detail: 'Consulta SELECT executada com sucesso.' });
+        const usersList = await listUsers();
+        const adminCount = usersList.filter(u => u.role === 'admin').length;
+        addResult({
+          name: 'Tabela: users',
+          status: adminCount > 0 ? 'ok' : 'error',
+          detail: `${usersList.length} usuário(s) ativo(s) (${adminCount} administrador(es)).`,
+        });
       } catch (err: unknown) {
         addResult({ name: 'Tabela: users', status: 'error', detail: getErrorMessage(err) });
       }
@@ -61,15 +65,15 @@ export default function DiagnosticsPage() {
       // 3. Table settings
       try {
         await turso.execute('SELECT id FROM settings LIMIT 1');
-        addResult({ name: 'Tabela: settings', status: 'ok', detail: 'Configurações de alerta disponíveis.' });
+        addResult({ name: 'Tabela: settings', status: 'ok', detail: 'Configurações de alerta e capacidade disponíveis.' });
       } catch (err: unknown) {
         addResult({ name: 'Tabela: settings', status: 'error', detail: getErrorMessage(err) });
       }
 
       // 4. Table guests
       try {
-        await turso.execute('SELECT id FROM guests LIMIT 1');
-        addResult({ name: 'Tabela: guests', status: 'ok', detail: 'Estrutura de hóspedes ativa.' });
+        const guestsList = await listGuests();
+        addResult({ name: 'Tabela: guests', status: 'ok', detail: `Estrutura ativa (${guestsList.length} hóspedes registrados).` });
       } catch (err: unknown) {
         addResult({ name: 'Tabela: guests', status: 'error', detail: getErrorMessage(err) });
       }
@@ -82,104 +86,108 @@ export default function DiagnosticsPage() {
         addResult({ name: 'Tabela: audit_logs', status: 'error', detail: getErrorMessage(err) });
       }
 
-      // 6. Login verify
+      // 6. Cryptographic Hash Integrity (without hardcoded passwords)
       try {
-        const verified = await verifyUser('admin', 'admin123');
+        const probe = `diag_${crypto.randomUUID().slice(0, 8)}`;
+        const hashed = await hashPassword(probe);
+        const matches = await compareHash(probe, hashed);
         addResult({
-          name: 'Verificação de Autenticação SHA-256',
-          status: verified ? 'ok' : 'error',
-          detail: verified ? `Admin ID: ${verified.id}` : 'Sem retorno para usuário admin.',
+          name: 'Motor Criptográfico (Salted SHA-256)',
+          status: matches ? 'ok' : 'error',
+          detail: matches ? 'Geração de salt e verificação íntegras.' : 'Falha na verificação de hash.',
         });
       } catch (err: unknown) {
-        addResult({ name: 'Verificação de Autenticação SHA-256', status: 'error', detail: getErrorMessage(err) });
+        addResult({ name: 'Motor Criptográfico (Salted SHA-256)', status: 'error', detail: getErrorMessage(err) });
       }
 
-      // 7. CRUD users
-      try {
-        const diagUsername = `diag_user_${crypto.randomUUID().slice(0, 8)}`;
-        const createdUser = await createUser(diagUsername, 'Temp1234!', 'funcionario');
-        addResult({ name: 'CRUD: Criar Usuário', status: 'ok', detail: `Criado ${createdUser.username}` });
+      if (includeWriteTests) {
+        // 7. CRUD users
+        try {
+          const diagUsername = `diag_user_${crypto.randomUUID().slice(0, 8)}`;
+          const randomSecret = crypto.randomUUID();
+          const createdUser = await createUser(diagUsername, randomSecret, 'funcionario');
+          addResult({ name: 'Gravação: Criar Usuário Temporário', status: 'ok', detail: `Criado ${createdUser.username}` });
 
-        const userList = await listUsers();
-        const found = userList.find(u => u.username === diagUsername);
-        addResult({
-          name: 'CRUD: Listar Usuários',
-          status: found ? 'ok' : 'error',
-          detail: found ? 'Usuário localizado na listagem.' : 'Usuário não encontrado após criação.',
-        });
+          const userList = await listUsers();
+          const found = userList.find(u => u.username === diagUsername);
+          addResult({
+            name: 'Gravação: Listar Usuários',
+            status: found ? 'ok' : 'error',
+            detail: found ? 'Usuário localizado na listagem.' : 'Usuário não encontrado após criação.',
+          });
 
-        await deleteUser(createdUser.id);
-        const userListAfter = await listUsers();
-        const stillExists = userListAfter.find(u => u.username === diagUsername);
-        addResult({
-          name: 'CRUD: Excluir Usuário',
-          status: stillExists ? 'error' : 'ok',
-          detail: stillExists ? 'Usuário ainda presente após exclusão.' : 'Removido com sucesso.',
-        });
-      } catch (err: unknown) {
-        addResult({ name: 'CRUD Usuários', status: 'error', detail: getErrorMessage(err) });
-      }
+          await deleteUser(createdUser.id);
+          const userListAfter = await listUsers();
+          const stillExists = userListAfter.find(u => u.username === diagUsername);
+          addResult({
+            name: 'Gravação: Excluir Usuário Temporário',
+            status: stillExists ? 'error' : 'ok',
+            detail: stillExists ? 'Usuário ainda presente após exclusão.' : 'Removido com sucesso.',
+          });
+        } catch (err: unknown) {
+          addResult({ name: 'Gravação de Usuários', status: 'error', detail: getErrorMessage(err) });
+        }
 
-      // 8. CRUD guests
-      try {
+        // 8. CRUD guests (with complete cleanup including audit_logs)
         const testGuestId = crypto.randomUUID();
-        await upsertGuest({
-          id: testGuestId,
-          name: 'DIAG Teste',
-          dateOfBirth: '1990-01-01',
-          phone: '(62) 99999-9999',
-          cpf: '000.000.000-00',
-          status: 'presente',
-        });
-        addResult({ name: 'CRUD: Criar Hóspede', status: 'ok', detail: `ID=${testGuestId.slice(0, 8)}...` });
+        try {
+          await upsertGuest({
+            id: testGuestId,
+            name: 'DIAG Teste Temporário',
+            dateOfBirth: '1990-01-01',
+            phone: '(62) 99999-9999',
+            cpf: '000.000.000-00',
+            status: 'presente',
+          });
+          addResult({ name: 'Gravação: Criar Hóspede Temporário', status: 'ok', detail: `ID=${testGuestId.slice(0, 8)}...` });
 
-        const guests = await listGuests();
-        const foundGuest = guests.find(g => g.id === testGuestId);
-        addResult({
-          name: 'CRUD: Listar Hóspedes',
-          status: foundGuest ? 'ok' : 'error',
-          detail: foundGuest ? 'Hóspede listado corretamente.' : 'Hóspede ausente na listagem.',
-        });
+          const fetched = await getGuest(testGuestId);
+          addResult({
+            name: 'Gravação: Buscar Hóspede',
+            status: fetched ? 'ok' : 'error',
+            detail: fetched ? `Nome: ${fetched.name}` : 'Não encontrado via busca.',
+          });
 
-        const fetched = await getGuest(testGuestId);
-        addResult({
-          name: 'CRUD: Buscar Hóspede',
-          status: fetched ? 'ok' : 'error',
-          detail: fetched ? `Nome: ${fetched.name}` : 'Não encontrado via get.',
-        });
+          const now = new Date().toISOString();
+          await addAudit({
+            id: crypto.randomUUID(),
+            guestId: testGuestId,
+            toStatus: 'presente',
+            at: now,
+            byUser: user?.username || 'diagnostic',
+            note: 'Entrada de auditoria de diagnóstico.',
+          });
 
-        const now = new Date().toISOString();
-        await addAudit({
-          id: crypto.randomUUID(),
-          guestId: testGuestId,
-          toStatus: 'presente',
-          at: now,
-          byUser: user?.username || 'diagnostic',
-          note: 'Entrada de auditoria de diagnóstico.',
-        });
+          const auditLogs = await listAudit(testGuestId);
+          const hasDiagAudit = auditLogs.some(
+            a => a.note?.includes('diagnóstico') || a.note?.includes('diagnostic')
+          );
+          addResult({
+            name: 'Gravação: Auditoria do Hóspede',
+            status: hasDiagAudit ? 'ok' : 'error',
+            detail: hasDiagAudit ? `Registros verificados (${auditLogs.length})` : 'Sem registro de diagnóstico.',
+          });
 
-        const auditLogs = await listAudit(testGuestId);
-        const hasDiagAudit = auditLogs.some(
-          a => a.note?.includes('diagnóstico') || a.note?.includes('diagnostic')
-        );
-        addResult({
-          name: 'CRUD: Auditoria do Hóspede',
-          status: hasDiagAudit ? 'ok' : 'error',
-          detail: hasDiagAudit ? `Logs encontrados: ${auditLogs.length}` : 'Sem log de diagnóstico.',
-        });
-
-        await deleteGuest(testGuestId);
-        const fetchedAfter = await getGuest(testGuestId);
-        addResult({
-          name: 'CRUD: Excluir Hóspede',
-          status: fetchedAfter ? 'error' : 'ok',
-          detail: fetchedAfter ? 'Ainda existe após exclusão.' : 'Removido com sucesso.',
-        });
-      } catch (err: unknown) {
-        addResult({ name: 'CRUD Hóspedes', status: 'error', detail: getErrorMessage(err) });
+          await deleteGuest(testGuestId);
+          await turso.execute({ sql: 'DELETE FROM audit_logs WHERE guest_id = ?', args: [testGuestId] });
+          const fetchedAfter = await getGuest(testGuestId);
+          addResult({
+            name: 'Gravação: Limpeza de Registro Temporário',
+            status: fetchedAfter ? 'error' : 'ok',
+            detail: fetchedAfter ? 'Ainda existe após exclusão.' : 'Hóspede e registros de teste removidos com sucesso.',
+          });
+        } catch (err: unknown) {
+          try {
+            await deleteGuest(testGuestId);
+            await turso.execute({ sql: 'DELETE FROM audit_logs WHERE guest_id = ?', args: [testGuestId] });
+          } catch {
+            // ignore cleanup error
+          }
+          addResult({ name: 'Gravação de Hóspedes', status: 'error', detail: getErrorMessage(err) });
+        }
       }
 
-      toast.success('Bateria de testes de diagnóstico concluída!');
+      toast.success('Verificação de diagnóstico concluída!');
     } finally {
       setRunning(false);
     }
@@ -189,75 +197,72 @@ export default function DiagnosticsPage() {
   const errorCount = results.filter(r => r.status === 'error').length;
 
   return (
-    <div className="container-page py-8 max-w-4xl space-y-6 animate-in fade-in duration-300">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="container-page py-6 space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:min-h-[44px]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
-            <Activity className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white">
             Diagnóstico do Sistema
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Teste automatizado de integridade de banco de dados, autenticação e operações CRUD
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Teste automatizado de integridade de banco de dados, autenticação e gravação
           </p>
         </div>
 
-        <button
-          className="btn-primary shadow-sm"
-          disabled={running}
-          onClick={runDiagnostics}
-        >
-          {running ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Executando Testes...</span>
-            </>
-          ) : (
-            <>
-              <Play className="h-4 w-4" />
-              <span>Executar Diagnóstico</span>
-            </>
-          )}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary cursor-pointer"
+            disabled={running}
+            onClick={() => runDiagnostics(true)}
+          >
+            <Database className="h-3.5 w-3.5" />
+            <span>Testar Escrita (Banco)</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn-primary cursor-pointer"
+            disabled={running}
+            onClick={() => runDiagnostics(false)}
+          >
+            {running ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Executando...</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5" />
+                <span>Verificar Saúde (Leitura)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {results.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <div className="card p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-medium">Testes com Sucesso</p>
-              <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{okCount}</p>
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+          <div className="card p-4">
+            <p className="text-xs text-slate-500 font-medium mb-1">Testes com Sucesso</p>
+            <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">{okCount}</p>
           </div>
 
-          <div className="card p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400">
-              <XCircle className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-medium">Falhas</p>
-              <p className="text-xl font-bold text-rose-600 dark:text-rose-400">{errorCount}</p>
-            </div>
+          <div className="card p-4">
+            <p className="text-xs text-slate-500 font-medium mb-1">Falhas</p>
+            <p className="text-2xl font-semibold text-rose-600 dark:text-rose-400 tabular-nums">{errorCount}</p>
           </div>
 
-          <div className="card p-4 flex items-center gap-3 col-span-2 sm:col-span-1">
-            <div className="p-2.5 rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950/40 dark:text-brand-400">
-              <Server className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 font-medium">Total Executado</p>
-              <p className="text-xl font-bold text-slate-900 dark:text-white">{results.length}</p>
-            </div>
+          <div className="card p-4 col-span-2 sm:col-span-1">
+            <p className="text-xs text-slate-500 font-medium mb-1">Total Executado</p>
+            <p className="text-2xl font-semibold text-slate-900 dark:text-white tabular-nums">{results.length}</p>
           </div>
         </div>
       )}
 
       {/* Results List */}
-      <div className="card p-6 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+      <div className="card p-5 space-y-4">
+        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
             Resultados das Verificações
           </h2>
           <span className="text-xs text-slate-400">Banco Turso (LibSQL SQLite)</span>
@@ -265,11 +270,11 @@ export default function DiagnosticsPage() {
 
         {results.length === 0 ? (
           <div className="py-12 text-center text-slate-500">
-            <Server className="h-10 w-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            <Server className="h-7 w-7 text-slate-300 dark:text-slate-600 mx-auto mb-1.5" />
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
               Nenhum teste executado ainda
             </p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-0.5">
               Clique em "Executar Diagnóstico" para iniciar as validações.
             </p>
           </div>
@@ -278,20 +283,20 @@ export default function DiagnosticsPage() {
             {results.map((r, i) => (
               <li
                 key={i}
-                className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 rounded-xl px-3 transition-colors"
+                className="py-3 flex items-center justify-between gap-4 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 rounded-md px-2.5 transition-colors"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                   {r.status === 'ok' ? (
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   ) : (
-                    <XCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <XCircle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
                   )}
                   <div>
-                    <span className="font-bold text-sm text-slate-900 dark:text-white">
+                    <span className="font-medium text-sm text-slate-900 dark:text-white">
                       {r.name}
                     </span>
                     {r.detail && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
                         {r.detail}
                       </p>
                     )}
@@ -305,7 +310,7 @@ export default function DiagnosticsPage() {
                       : 'badge-red'
                   }
                 >
-                  {r.status.toUpperCase()}
+                  {r.status === 'ok' ? 'SUCESSO' : 'ERRO'}
                 </span>
               </li>
             ))}

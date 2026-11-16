@@ -1,23 +1,36 @@
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect, lazy, Suspense } from 'react';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import Navbar from './components/Navbar';
 import LoginPage from './pages/Login';
-import DashboardPage from './pages/Dashboard';
-import GuestFormPage from './pages/GuestForm';
-import GuestDetailsPage from './pages/GuestDetails';
-import GuestHistoryListPage from './pages/GuestHistoryList';
-import GuestHistoryPage from './pages/GuestHistory';
-import GuestEditListPage from './pages/GuestEditList';
-import GuestDeleteListPage from './pages/GuestDeleteList';
-import UserManagementPage from './pages/UserManagement';
-import DiagnosticsPage from './pages/Diagnostics';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'sonner';
 import ChangePasswordModal from './components/ChangePasswordModal';
 
+const PainelPage = lazy(() => import('./pages/Painel'));
+const RecepcaoPage = lazy(() => import('./pages/Recepcao'));
+const HospedesPage = lazy(() => import('./pages/Hospedes'));
+const RelatoriosPage = lazy(() => import('./pages/Relatorios'));
+const GuestFormPage = lazy(() => import('./pages/GuestForm'));
+const GuestDetailsPage = lazy(() => import('./pages/GuestDetails'));
+const GuestHistoryPage = lazy(() => import('./pages/GuestHistory'));
+const UserManagementPage = lazy(() => import('./pages/UserManagement'));
+const DiagnosticsPage = lazy(() => import('./pages/Diagnostics'));
+const ConfiguracoesPage = lazy(() => import('./pages/Configuracoes'));
+
+function PageLoader() {
+  return (
+    <div className="container-page py-16 flex flex-col items-center justify-center gap-2.5 text-slate-500">
+      <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+      <p className="text-xs font-medium">Carregando...</p>
+    </div>
+  );
+}
+
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) {
-    return <div className="container-page py-10 text-sm text-gray-500">Carregando...</div>;
+    return <PageLoader />;
   }
   return user ? <>{children}</> : <Navigate to="/login" replace />;
 }
@@ -25,13 +38,13 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) {
-    return <div className="container-page py-10 text-sm text-gray-500">Carregando...</div>;
+    return <PageLoader />;
   }
   if (!user) {
     return <Navigate to="/login" replace />;
   }
   if (user.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/painel" replace />;
   }
   return <>{children}</>;
 }
@@ -40,87 +53,125 @@ function AppShell() {
   const location = useLocation();
   const hideNavbar = location.pathname === '/login';
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   return (
     <>
       {!hideNavbar && <Navbar />}
       <ChangePasswordModal />
-      <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute>
-              <DashboardPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/cadastro"
-          element={
-            <PrivateRoute>
-              <GuestFormPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/hospedes/:id"
-          element={
-            <PrivateRoute>
-              <GuestDetailsPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/historico"
-          element={
-            <PrivateRoute>
-              <GuestHistoryListPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/editar"
-          element={
-            <PrivateRoute>
-              <GuestEditListPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/excluir"
-          element={
-            <PrivateRoute>
-              <GuestDeleteListPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/hospedes/:id/historico"
-          element={
-            <PrivateRoute>
-              <GuestHistoryPage />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/admin/usuarios"
-          element={
-            <AdminRoute>
-              <UserManagementPage />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/diagnostics"
-          element={
-            <AdminRoute>
-              <DiagnosticsPage />
-            </AdminRoute>
-          }
-        />
-        <Route path="*" element={<div className="container-page py-10">Página não encontrada.</div>} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/painel" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/painel"
+            element={
+              <PrivateRoute>
+                <PainelPage />
+              </PrivateRoute>
+            }
+          />
+          <Route path="/dashboard" element={<Navigate to="/painel" replace />} />
+          <Route
+            path="/recepcao"
+            element={
+              <PrivateRoute>
+                <RecepcaoPage />
+              </PrivateRoute>
+            }
+          />
+          <Route path="/operacao" element={<Navigate to="/recepcao" replace />} />
+          <Route
+            path="/hospedes"
+            element={
+              <PrivateRoute>
+                <HospedesPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/cadastro"
+            element={
+              <PrivateRoute>
+                <GuestFormPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/hospedes/:id"
+            element={
+              <PrivateRoute>
+                <GuestDetailsPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/relatorios"
+            element={
+              <PrivateRoute>
+                <RelatoriosPage />
+              </PrivateRoute>
+            }
+          />
+          <Route path="/historico" element={<Navigate to="/relatorios" replace />} />
+          <Route path="/editar" element={<Navigate to="/hospedes" replace />} />
+          <Route path="/excluir" element={<Navigate to="/hospedes" replace />} />
+          <Route
+            path="/hospedes/:id/historico"
+            element={
+              <PrivateRoute>
+                <GuestHistoryPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/admin/usuarios"
+            element={
+              <AdminRoute>
+                <UserManagementPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/diagnostics"
+            element={
+              <AdminRoute>
+                <DiagnosticsPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/configuracoes"
+            element={
+              <AdminRoute>
+                <ConfiguracoesPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <div className="container-page py-16">
+                <div className="card max-w-md mx-auto p-6 text-center space-y-3">
+                  <h1 className="text-base font-semibold text-slate-900 dark:text-white">
+                    Página não encontrada
+                  </h1>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    O endereço acessado não existe ou foi movido.
+                  </p>
+                  <div className="pt-1">
+                    <Link to="/painel" className="btn-primary inline-flex">
+                      Voltar ao Painel
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            }
+          />
+        </Routes>
+      </Suspense>
     </>
   );
 }

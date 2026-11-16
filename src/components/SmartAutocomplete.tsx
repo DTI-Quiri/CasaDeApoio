@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useId, type KeyboardEvent } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 
 export interface AutocompleteOption {
@@ -42,6 +42,7 @@ export default function SmartAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const listboxId = useId();
 
   const formattedOptions: AutocompleteOption[] = options.map(opt =>
     typeof opt === 'string' ? { label: opt } : opt
@@ -78,6 +79,15 @@ export default function SmartAutocomplete({
     setHighlightedIndex(-1);
   }, [value]);
 
+  useEffect(() => {
+    if (open && listRef.current && highlightedIndex >= 0) {
+      const items = listRef.current.querySelectorAll('li');
+      if (items[highlightedIndex]) {
+        items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [open, highlightedIndex]);
+
   function handleSelect(opt: AutocompleteOption) {
     onChange(opt.label);
     setOpen(false);
@@ -93,12 +103,14 @@ export default function SmartAutocomplete({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex(prev => (prev < filtered.length - 1 ? prev + 1 : 0));
-      scrollToHighlighted(highlightedIndex + 1);
+      if (filtered.length > 0) {
+        setHighlightedIndex(prev => (prev < filtered.length - 1 ? prev + 1 : 0));
+      }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHighlightedIndex(prev => (prev > 0 ? prev - 1 : filtered.length - 1));
-      scrollToHighlighted(highlightedIndex - 1);
+      if (filtered.length > 0) {
+        setHighlightedIndex(prev => (prev > 0 ? prev - 1 : filtered.length - 1));
+      }
     } else if (e.key === 'Enter') {
       if (open && highlightedIndex >= 0 && highlightedIndex < filtered.length) {
         e.preventDefault();
@@ -108,15 +120,6 @@ export default function SmartAutocomplete({
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
-    }
-  }
-
-  function scrollToHighlighted(index: number) {
-    if (listRef.current && index >= 0) {
-      const items = listRef.current.querySelectorAll('li');
-      if (items[index]) {
-        items[index].scrollIntoView({ block: 'nearest' });
-      }
     }
   }
 
@@ -131,6 +134,10 @@ export default function SmartAutocomplete({
 
         <input
           ref={inputRef}
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          aria-controls={open ? listboxId : undefined}
           className={`input ${icon ? '!pl-10' : ''} !pr-9 ${inputClassName}`}
           placeholder={placeholder}
           value={value}
@@ -160,15 +167,17 @@ export default function SmartAutocomplete({
       </div>
 
       {open && (
-        <div className="absolute z-50 mt-1.5 w-full rounded-2xl border border-slate-200/90 dark:border-slate-800/90 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-lg overflow-hidden">
           {filtered.length === 0 ? (
-            <div className="p-4 text-xs text-slate-500 text-center">
+            <div className="p-3.5 text-xs text-slate-500 text-center">
               {emptyText}
             </div>
           ) : (
             <ul
+              id={listboxId}
+              role="listbox"
               ref={listRef}
-              className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50 p-1"
+              className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 p-1"
             >
               {filtered.map((opt, idx) => {
                 const isSelected = value.trim().toLowerCase() === opt.label.trim().toLowerCase();
@@ -177,16 +186,18 @@ export default function SmartAutocomplete({
                 return (
                   <li
                     key={idx}
+                    role="option"
+                    aria-selected={isSelected}
                     onMouseEnter={() => setHighlightedIndex(idx)}
                     onClick={() => handleSelect(opt)}
-                    className={`px-3.5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center justify-between gap-3 transition-colors ${
+                    className={`px-3 py-2 rounded-md text-xs cursor-pointer flex items-center justify-between gap-3 transition-colors ${
                       isHighlighted || isSelected
-                        ? 'bg-brand-50/90 dark:bg-brand-950/50 text-brand-900 dark:text-brand-100'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                     }`}
                   >
                     <div className="flex flex-col gap-0.5">
-                      <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span className="font-medium text-slate-900 dark:text-white flex items-center gap-1.5">
                         {opt.label}
                         {isSelected && <Check className="h-3.5 w-3.5 text-brand-600 shrink-0" />}
                       </span>
@@ -198,7 +209,7 @@ export default function SmartAutocomplete({
                     </div>
 
                     {opt.badge && (
-                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/50">
+                      <span className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {opt.badge}
                       </span>
                     )}
