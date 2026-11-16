@@ -76,7 +76,7 @@ export default function Navbar() {
 
   const navItemClass = (active: boolean) =>
     cn(
-      'relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150',
+      'relative flex items-center gap-1.5 px-2.5 xl:px-3 py-2 rounded-lg text-[13px] font-medium whitespace-nowrap shrink-0 transition-colors duration-150',
       active
         ? 'bg-brand-50/90 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300 after:hidden lg:after:block after:absolute after:inset-x-2.5 after:-bottom-[13px] after:h-[2px] after:bg-brand-700 dark:after:bg-brand-400 after:rounded-full'
         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'
@@ -102,9 +102,9 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-30 w-full border-b border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/painel" className="flex items-center gap-3 select-none cursor-pointer group">
+        <div className="flex h-16 items-center justify-between gap-3">
+          <div className="flex items-center gap-3 xl:gap-5 min-w-0">
+            <Link to="/painel" className="flex items-center gap-2.5 select-none cursor-pointer group shrink-0">
               <div className="h-9 w-9 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 p-1 flex items-center justify-center shrink-0">
                 <img
                   src="/Brasao-Quirinopolis.png"
@@ -112,19 +112,19 @@ export default function Navbar() {
                   className="h-full w-full object-contain"
                 />
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white leading-tight group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors">
+              <div className="flex flex-col shrink-0">
+                <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white leading-tight whitespace-nowrap group-hover:text-brand-700 dark:group-hover:text-brand-300 transition-colors">
                   Casa de Apoio
                 </span>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight whitespace-nowrap">
                   Quirinópolis • GO
                 </span>
               </div>
             </Link>
 
-            <div className="hidden md:block h-6 w-px bg-slate-200/90 dark:bg-slate-800" />
+            <div className="hidden lg:block h-6 w-px bg-slate-200/90 dark:bg-slate-800 shrink-0" />
 
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1">
               <Link to="/painel" className={navItemClass(painActive)}>
                 <LayoutDashboard className={navIconClass(painActive)} />
                 <span>Painel</span>
@@ -148,7 +148,7 @@ export default function Navbar() {
               <Link
                 to="/cadastro"
                 className={cn(
-                  'ml-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150',
+                  'ml-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap shrink-0 transition-all duration-150',
                   cadastroActive
                     ? 'bg-brand-800 text-white shadow-soft'
                     : 'bg-brand-700 text-white hover:bg-brand-800 dark:bg-brand-600 dark:hover:bg-brand-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
@@ -207,18 +207,18 @@ export default function Navbar() {
             </nav>
           </div>
 
-          <div className="hidden md:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
             {user && (
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}
                 title="Buscar hóspede por nome, CPF, telefone ou hospital (Ctrl+K)"
-                className="inline-flex items-center justify-between gap-2.5 h-8 w-40 lg:w-60 xl:w-72 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/70 text-xs text-slate-400 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-white dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-all cursor-text shadow-[inset_0_1px_2px_rgba(15,23,42,0.03)]"
+                className="inline-flex items-center justify-between gap-2 h-8 w-32 xl:w-56 2xl:w-64 px-2.5 xl:px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/70 text-xs text-slate-400 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-white dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-200 transition-all cursor-text shadow-[inset_0_1px_2px_rgba(15,23,42,0.03)]"
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                  <span className="truncate lg:hidden">Buscar...</span>
-                  <span className="hidden lg:inline truncate">Buscar hóspede...</span>
+                  <span className="truncate xl:hidden">Buscar...</span>
+                  <span className="hidden xl:inline truncate">Buscar hóspede...</span>
                 </span>
                 <kbd className="hidden xl:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-400 shrink-0">
                   Ctrl+K
@@ -232,10 +232,10 @@ export default function Navbar() {
                     ? 'Sem conexão com a internet'
                     : 'Falha ao sincronizar com o servidor'
                 }
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60 shrink-0"
               >
                 <WifiOff className="h-3 w-3 shrink-0" />
-                <span className="hidden xl:inline">
+                <span className="hidden 2xl:inline">
                   {!syncStatus.online ? 'Sem conexão' : 'Erro de conexão'}
                 </span>
               </span>
@@ -244,8 +244,8 @@ export default function Navbar() {
             <ThemeToggle />
             <div className="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
             {user ? (
-              <div className="flex items-center gap-2 pl-1">
-                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <div className="flex items-center gap-1.5 pl-0.5">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 max-w-[120px] truncate">
                   {user.username}
                 </span>
                 <button
@@ -264,7 +264,7 @@ export default function Navbar() {
             )}
           </div>
 
-          <div className="flex md:hidden items-center gap-1.5">
+          <div className="flex lg:hidden items-center gap-1.5 shrink-0">
             {user && (
               <button
                 type="button"
@@ -292,7 +292,7 @@ export default function Navbar() {
       </div>
 
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 absolute w-full shadow-lg">
+        <div className="lg:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 absolute w-full shadow-lg">
           <div className="px-4 py-4 space-y-3">
             {user && (
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
