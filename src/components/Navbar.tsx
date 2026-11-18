@@ -150,8 +150,8 @@ export default function Navbar() {
                 className={cn(
                   'ml-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap shrink-0 transition-all duration-150',
                   cadastroActive
-                    ? 'bg-brand-800 text-white shadow-soft'
-                    : 'bg-brand-700 text-white hover:bg-brand-800 dark:bg-brand-600 dark:hover:bg-brand-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
+                    ? 'bg-brand-800 text-white hover:text-white shadow-soft'
+                    : 'bg-brand-700 text-white hover:text-white hover:bg-brand-800 dark:bg-brand-600 dark:hover:bg-brand-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
                 )}
               >
                 <UserPlus className="h-3.5 w-3.5 shrink-0 text-white" />

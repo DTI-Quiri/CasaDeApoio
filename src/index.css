@@ -18,8 +18,20 @@
     overflow-x: clip;
     text-rendering: optimizeLegibility;
   }
-  a {
-    @apply text-brand-700 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 transition-colors;
+  :where(a) {
+    color: theme('colors.brand.700');
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+  :where(a:hover) {
+    color: theme('colors.brand.800');
+  }
+  :where(.dark a) {
+    color: theme('colors.brand.400');
+  }
+  :where(.dark a:hover) {
+    color: theme('colors.brand.300');
   }
 }
 
@@ -45,23 +57,23 @@
   }
 
   .btn-primary {
-    @apply btn bg-brand-700 text-white hover:bg-brand-800 active:bg-brand-900 dark:bg-brand-600 dark:hover:bg-brand-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(15,23,42,0.08)];
+    @apply btn bg-brand-700 text-white hover:text-white hover:bg-brand-800 active:bg-brand-900 dark:bg-brand-600 dark:hover:text-white dark:hover:bg-brand-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(15,23,42,0.08)];
   }
 
   .btn-secondary {
-    @apply btn bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700 shadow-soft;
+    @apply btn bg-white text-slate-700 hover:text-slate-800 hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:text-slate-100 dark:hover:bg-slate-800 border border-slate-300/80 dark:border-slate-700 shadow-soft;
   }
 
   .btn-danger {
-    @apply btn bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-600 dark:hover:bg-rose-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(15,23,42,0.08)];
+    @apply btn bg-rose-600 text-white hover:text-white hover:bg-rose-700 dark:bg-rose-600 dark:hover:text-white dark:hover:bg-rose-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_2px_rgba(15,23,42,0.08)];
   }
 
   .btn-warning {
-    @apply btn bg-white text-amber-800 hover:bg-amber-50/90 dark:bg-slate-800/90 dark:text-amber-300 dark:hover:bg-amber-950/30 border border-amber-300/90 dark:border-amber-800/70 shadow-soft;
+    @apply btn bg-white text-amber-800 hover:text-amber-900 hover:bg-amber-50/90 dark:bg-slate-800/90 dark:text-amber-300 dark:hover:text-amber-200 dark:hover:bg-amber-950/30 border border-amber-300/90 dark:border-amber-800/70 shadow-soft;
   }
 
   .btn-success {
-    @apply btn bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(15,23,42,0.08)];
+    @apply btn bg-emerald-700 text-white hover:text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:text-white dark:hover:bg-emerald-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(15,23,42,0.08)];
   }
 
   .input {
